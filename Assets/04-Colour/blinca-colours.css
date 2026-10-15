@@ -1,0 +1,10 @@
+:root {
+  --blinca-cranberry: #E23744;      /* Primary brand colour */
+  --blinca-cranberry-deep: #B3202E; /* Buttons, links, pressed states */
+  --blinca-blush: #FCE8EA;          /* Tinted panels, selected chips */
+  --blinca-ink: #1C1416;            /* Text, dark surfaces */
+  --blinca-stone: #6E6467;          /* Secondary text, icons */
+  --blinca-paper: #FFF8F4;          /* Default background */
+  --blinca-saffron: #FFB020;        /* Offers, ratings - accent only */
+  --blinca-font: 'Mundial', system-ui, sans-serif;
+}

@@ -1,0 +1,20 @@
+BLINCA RIDER APP - TECH STACK
+=============================
+
+App shell      Tauri 2.12 (Rust, edition 2024). Wraps the web UI as a native
+               Android, iOS or desktop app. No custom Rust commands.
+UI framework   SvelteKit 2 + Svelte 5 (runes)
+Rendering      Static single-page app (adapter-static, no SSR)
+Language       TypeScript 6
+Build tool     Vite 8
+Maps           Leaflet 1.9.4 + OpenStreetMap tiles (needs internet)
+Styling        Plain CSS with design tokens (CSS variables in src/app.css)
+Font           Mundial Regular (local .otf)
+Backend        None. All data is mocked in the frontend behind service
+               interfaces (src/lib/services), so a real API can be swapped
+               in later.
+Type checking  svelte-check
+
+Android        Android SDK + NDK 29, JDK 17, Gradle
+               compileSdk/targetSdk 37, minSdk 24 (Android 7.0+)
+Runtime        Node.js 20+ and npm, Rust (stable)

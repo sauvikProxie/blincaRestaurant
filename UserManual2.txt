@@ -1,0 +1,152 @@
+BLINCA - HOW TO RUN THE APP ON THE EMULATOR (VS CODE ONLY)
+==========================================================
+
+No Android Studio needed. Every command goes into the VS Code terminal
+(PowerShell). Open the terminal with:  Ctrl + `   (backtick key)
+
+
+ONE-TIME SETUP (skip if already done)
+-------------------------------------
+1. Set the environment variables (run once, in any PowerShell):
+
+     setx JAVA_HOME "C:\Program Files\Java\jdk-17"
+     setx ANDROID_HOME "E:\Android\Sdk"
+     setx NDK_HOME "E:\Android\Sdk\ndk\29.0.14206865"
+     setx GRADLE_USER_HOME "E:\Android\.gradle"
+
+   Then CLOSE VS Code completely and open it again, so it picks them up.
+
+   Check they are set (should print E:\Android\Sdk):
+     echo $env:ANDROID_HOME
+
+2. Windows Developer Mode must be ON. It already is on this PC.
+   (Settings -> System -> For developers)
+
+
+WHY THE EMULATOR NEEDS A SPECIAL COMMAND ON THIS PC
+---------------------------------------------------
+This PC has two Android SDK folders:
+
+  E:\Android\Sdk                          used for BUILDING the app
+                                          (ANDROID_HOME points here)
+  C:\Users\Asus\AppData\Local\Android\Sdk has the EMULATOR and the
+                                          phone image
+
+If you start the emulator the plain way, it looks in E:\Android\Sdk,
+finds no phone image, and quits straight away (no window opens). The
+error is: "Cannot find AVD system path. Please define ANDROID_SDK_ROOT"
+or "Broken AVD system path. Check your ANDROID_SDK_ROOT value".
+
+Setting only ANDROID_SDK_ROOT is NOT enough: the emulator checks
+ANDROID_HOME first, so it still looks in E:\Android\Sdk and fails.
+
+So the start command in step 2 below points BOTH ANDROID_SDK_ROOT and
+ANDROID_HOME at the emulator's SDK, for the emulator only. It then puts
+ANDROID_HOME back and clears ANDROID_SDK_ROOT, so the build in step 5
+still uses E:\Android\Sdk.
+Do NOT make it permanent with setx: two different SDK paths can confuse
+the build.
+
+
+EVERY TIME: RUN THE APP
+-----------------------
+1. Open the project in VS Code:
+     File -> Open Folder -> E:\Proxie\Projects\Blinca\Blinca
+
+2. Start the emulator (it opens in its own window; the terminal stays free).
+   Copy the whole line:
+
+     $old = $env:ANDROID_HOME; $sdk = "$env:LOCALAPPDATA\Android\Sdk"; $env:ANDROID_SDK_ROOT = $sdk; $env:ANDROID_HOME = $sdk; Start-Process "$sdk\emulator\emulator.exe" -ArgumentList "-avd","Medium_Phone_API_36"; Remove-Item Env:ANDROID_SDK_ROOT; $env:ANDROID_HOME = $old
+
+   If no emulator window appears within a minute, see "Emulator window
+   never opens" under TROUBLESHOOTING.
+
+3. Wait until the phone has fully booted (home screen visible). To check
+   from the terminal, run this; it prints 1 when ready (run it again if it
+   prints nothing):
+
+     E:\Android\Sdk\platform-tools\adb.exe wait-for-device shell getprop sys.boot_completed
+
+4. ONLY IF the release APK is installed on the emulator, remove it first.
+   Otherwise the dev build fails to install with
+   INSTALL_FAILED_UPDATE_INCOMPATIBLE. (It was removed on 10 Oct 2026, so
+   you only need this after installing the APK again.)
+
+     E:\Android\Sdk\platform-tools\adb.exe uninstall com.foodpanda.partner
+
+   Note: the app is called Blinca, but its internal package ID is still
+   com.foodpanda.partner. That is expected; use it as written.
+
+5. Build and launch the app:
+
+     npm run tauri android dev
+
+   - The first run takes a few minutes. Later runs take about 1 minute.
+   - The app opens on the emulator by itself.
+   - A blank cream screen for a few seconds at first is normal while it loads.
+   - If Windows Firewall asks about "Node.js", click Allow (Private network).
+     The emulator loads the app from your PC over the network.
+
+6. Log in:   phone 1234567890   code 123456
+   Tap "Simulate order" (the yellow button, top right) to get a test order.
+   The map shows Umeå, Sweden, and earnings are in Swedish kronor (kr).
+
+7. While it runs, code changes in src\ appear on the emulator automatically.
+   Stop with Ctrl + C in the terminal.
+
+8. Close the emulator when done (or just close its window):
+
+     E:\Android\Sdk\platform-tools\adb.exe emu kill
+
+
+INSTALL THE READY-MADE APK INSTEAD (no live reload)
+---------------------------------------------------
+With the emulator running:
+
+  E:\Android\Sdk\platform-tools\adb.exe install -r "src-tauri\gen\android\app\build\outputs\apk\universal\release\app-universal-release.apk"
+
+Then open "Blinca" from the emulator's app list.
+(If it complains about signatures, uninstall first as in step 4.)
+Note: an APK built before the Blinca redesign still shows the old look and
+name. Build a new one to get the current version.
+
+
+TROUBLESHOOTING
+---------------
+Emulator window never opens
+    You most likely used the plain emulator command, or an older version
+    of step 2 that set only ANDROID_SDK_ROOT. Use the full line from
+    step 2 (it sets ANDROID_HOME too). To see the actual error, run the
+    emulator in the terminal (this keeps the terminal busy until you close
+    the emulator):
+      $sdk = "$env:LOCALAPPDATA\Android\Sdk"; $env:ANDROID_SDK_ROOT = $sdk; $env:ANDROID_HOME = $sdk; & "$sdk\emulator\emulator.exe" -avd Medium_Phone_API_36
+    Close that terminal afterwards, so the settings don't affect the build.
+
+"Port 1420 is already in use"
+    An old dev server is still running. Close other terminals running the
+    app, or run:
+      Get-NetTCPConnection -LocalPort 1420,1421 -State Listen | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }
+
+"No connected devices" / app never appears
+    The emulator hasn't finished booting. Wait for step 3 to print 1, then
+    run step 5 again.
+
+Step 3 never finishes / "adb devices" shows the emulator as "offline"
+    The emulator has frozen. Close its window (or end "qemu-system-x86_64"
+    in Task Manager), then reset adb and start the emulator again from
+    step 2:
+      E:\Android\Sdk\platform-tools\adb.exe kill-server
+    If it keeps freezing, start it fresh with a cold boot:
+      $old = $env:ANDROID_HOME; $sdk = "$env:LOCALAPPDATA\Android\Sdk"; $env:ANDROID_SDK_ROOT = $sdk; $env:ANDROID_HOME = $sdk; Start-Process "$sdk\emulator\emulator.exe" -ArgumentList "-avd","Medium_Phone_API_36","-no-snapshot-load"; Remove-Item Env:ANDROID_SDK_ROOT; $env:ANDROID_HOME = $old
+
+"Creation symbolic link is not allowed"
+    Developer Mode is off. Turn it on (one-time setup, step 2).
+
+"ANDROID_HOME / NDK_HOME not set" or "JAVA_HOME is not set"
+    Do one-time setup step 1, then restart VS Code.
+
+"Could not close incremental caches ... different roots" (Kotlin)
+    Harmless. The build carries on by itself.
+
+Emulator is very slow
+    Close other heavy apps. Start the emulator before VS Code builds anything.

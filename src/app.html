@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<!-- viewport-fit=cover: draw behind the status bar, camera cutout and navigation bar; app.css pads with --safe-* -->
+		<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+		<!-- Real icon comes from Assets via +layout.svelte; this stops the default /favicon.ico request. -->
+		<link rel="icon" href="data:," />
+		<script>
+			// Android shell only (MainActivity.kt): system bar and cutout sizes as --native-inset-* CSS variables.
+			window.__blincaSetSafeArea = (area) => {
+				for (const side of ['top', 'right', 'bottom', 'left']) {
+					document.documentElement.style.setProperty(`--native-inset-${side}`, `${area[side] ?? 0}px`);
+				}
+			};
+			try {
+				if (window.BlincaSafeArea) window.__blincaSetSafeArea(JSON.parse(window.BlincaSafeArea.get()));
+			} catch {
+				// No native shell: env(safe-area-inset-*) still applies.
+			}
+		</script>
+		<title>Blinca for restaurants</title>
+		%sveltekit.head%
+	</head>
+	<body data-sveltekit-preload-data="hover">
+		<div style="display: contents">%sveltekit.body%</div>
+	</body>
+</html>

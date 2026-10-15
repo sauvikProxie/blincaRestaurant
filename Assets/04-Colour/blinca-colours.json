@@ -1,0 +1,9 @@
+{
+  "cranberry":      { "hex": "#E23744", "rgb": [226, 55, 68],   "use": "Primary brand colour" },
+  "cranberry-deep": { "hex": "#B3202E", "rgb": [179, 32, 46],   "use": "Buttons, links, pressed states" },
+  "blush":          { "hex": "#FCE8EA", "rgb": [252, 232, 234], "use": "Tinted panels, selected chips" },
+  "ink":            { "hex": "#1C1416", "rgb": [28, 20, 22],    "use": "Text, dark surfaces" },
+  "stone":          { "hex": "#6E6467", "rgb": [110, 100, 103], "use": "Secondary text, icons" },
+  "paper":          { "hex": "#FFF8F4", "rgb": [255, 248, 244], "use": "Default background" },
+  "saffron":        { "hex": "#FFB020", "rgb": [255, 176, 32],  "use": "Offers, ratings - accent only" }
+}
