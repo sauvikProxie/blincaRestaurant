@@ -1,48 +1,38 @@
 <script lang="ts">
-	import { appConfig } from '$lib/config/app.config';
-	import type { Order } from '$lib/types';
+	import type { OrderDetail } from '$lib/types';
 	import { formatMoney, formatPercentRate } from '$lib/utils/format';
-	import { calculateOrderTotals } from '$lib/utils/order-totals';
 
-	let { order }: { order: Pick<Order, 'items' | 'discount' | 'discountLabel' | 'deliveryFee'> } = $props();
-
-	// Always recalculated from the items, never read from stored totals.
-	const totals = $derived(
-		calculateOrderTotals({
-			items: order.items,
-			discount: order.discount,
-			deliveryFee: order.deliveryFee,
-			vatRate: appConfig.vatRate
-		})
-	);
+	/** Amounts exactly as the backend charged them. Prices include VAT, as on a Swedish receipt. */
+	let { order }: { order: Pick<OrderDetail, 'subtotal' | 'discount' | 'deliveryFee' | 'total' | 'vat'> } = $props();
 </script>
 
 <dl class="breakdown">
 	<div class="row">
 		<dt>Subtotal</dt>
-		<dd>{formatMoney(totals.subtotal)}</dd>
+		<dd>{formatMoney(order.subtotal)}</dd>
 	</div>
-	<div class="row">
-		<dt>
-			Discount
-			<span class="note">{totals.discount > 0 && order.discountLabel ? order.discountLabel : 'No offer used'}</span>
-		</dt>
-		<dd class:discount={totals.discount > 0}>
-			{totals.discount > 0 ? `-${formatMoney(totals.discount)}` : formatMoney(0)}
-		</dd>
-	</div>
-	<div class="row">
-		<dt>VAT ({formatPercentRate(appConfig.vatRate)})</dt>
-		<dd>{formatMoney(totals.vat)}</dd>
-	</div>
-	<div class="row">
-		<dt>Delivery fee</dt>
-		<dd>{formatMoney(totals.deliveryFee)}</dd>
-	</div>
+	{#if order.discount > 0}
+		<div class="row">
+			<dt>Discount</dt>
+			<dd class="discount">-{formatMoney(order.discount)}</dd>
+		</div>
+	{/if}
+	{#if order.deliveryFee > 0}
+		<div class="row">
+			<dt>Delivery fee</dt>
+			<dd>{formatMoney(order.deliveryFee)}</dd>
+		</div>
+	{/if}
 	<div class="row total">
 		<dt>Total</dt>
-		<dd class="text-h2">{formatMoney(totals.total)}</dd>
+		<dd class="text-h2">{formatMoney(order.total)}</dd>
 	</div>
+	{#each order.vat as row (row.rate)}
+		<div class="row vat">
+			<dt>Of which VAT ({formatPercentRate(row.rate)})</dt>
+			<dd>{formatMoney(row.amount)}</dd>
+		</div>
+	{/each}
 </dl>
 
 <style>
@@ -61,8 +51,6 @@
 	}
 
 	dt {
-		display: flex;
-		flex-direction: column;
 		color: var(--color-text-muted);
 	}
 
@@ -70,12 +58,6 @@
 		margin: 0;
 		white-space: nowrap;
 		font-variant-numeric: tabular-nums;
-	}
-
-	.note {
-		font-size: var(--text-caption);
-		line-height: var(--lh-caption);
-		letter-spacing: var(--ls-caption);
 	}
 
 	.discount {
@@ -92,5 +74,15 @@
 
 	.total dt {
 		color: var(--color-text);
+	}
+
+	.vat {
+		font-size: var(--text-caption);
+		line-height: var(--lh-caption);
+		letter-spacing: var(--ls-caption);
+	}
+
+	.vat dd {
+		color: var(--color-text-muted);
 	}
 </style>

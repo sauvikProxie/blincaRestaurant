@@ -1,3 +1,4 @@
+import { TZDate } from '@date-fns/tz';
 import { addDays, differenceInMinutes, format, isSameDay } from 'date-fns';
 import { appConfig } from '$lib/config/app.config';
 
@@ -46,33 +47,34 @@ export function formatSerial(serialNo: number): string {
 	return `#${serialNo}`;
 }
 
-const asDate = (value: Date | string) => (typeof value === 'string' ? new Date(value) : value);
+/** The restaurant runs on Stockholm time, whatever time zone the device is set to. */
+const asDate = (value: Date | string | number) =>
+	new TZDate(typeof value === 'string' ? Date.parse(value) : +value, appConfig.dateTime.timeZone);
 
-export const formatTime = (value: Date | string) => format(asDate(value), dateTime.time);
-export const formatDate = (value: Date | string) => format(asDate(value), dateTime.date);
-export const formatShortDate = (value: Date | string) => format(asDate(value), dateTime.shortDate);
-export const formatDateTime = (value: Date | string) => format(asDate(value), dateTime.dateTime);
-export const formatWeekday = (value: Date | string) => format(asDate(value), dateTime.weekday);
-export const formatMonth = (value: Date | string) => format(asDate(value), dateTime.month);
+export const formatTime = (value: Date | string | number) => format(asDate(value), dateTime.time);
+export const formatDate = (value: Date | string | number) => format(asDate(value), dateTime.date);
+export const formatShortDate = (value: Date | string | number) => format(asDate(value), dateTime.shortDate);
+export const formatDateTime = (value: Date | string | number) => format(asDate(value), dateTime.dateTime);
+export const formatWeekday = (value: Date | string | number) => format(asDate(value), dateTime.weekday);
+export const formatMonth = (value: Date | string | number) => format(asDate(value), dateTime.month);
 
-/** yyyy-MM-dd in local time. */
-export const toISODate = (value: Date) => format(value, 'yyyy-MM-dd');
-
-/** Parses yyyy-MM-dd as local midnight. */
-export function fromISODate(value: string): Date {
+/** Formats a yyyy-MM-dd date (e.g. a business date) without shifting it across time zones. */
+export function formatISODate(value: string, pattern: string = dateTime.date): string {
 	const [y, m, d] = value.split('-').map(Number);
-	return new Date(y, m - 1, d);
+	return format(new Date(y, m - 1, d), pattern);
 }
 
 /** "today", "tomorrow" or the weekday name, relative to `now`. */
-export function relativeDay(date: Date, now: Date): string {
+export function relativeDay(value: Date | number, nowValue: Date | number): string {
+	const date = asDate(value);
+	const now = asDate(nowValue);
 	if (isSameDay(date, now)) return 'today';
 	if (isSameDay(addDays(now, 1), date)) return 'tomorrow';
 	return formatWeekday(date);
 }
 
 /** Short elapsed time in the brand voice: "Just now", "4 min ago", "1 h 12 min ago". */
-export function formatTimeAgo(value: Date | string, now: Date): string {
+export function formatTimeAgo(value: Date | string | number, now: Date): string {
 	const minutes = Math.max(0, differenceInMinutes(now, asDate(value)));
 	if (minutes < 1) return 'Just now';
 	if (minutes < 60) return `${minutes} min ago`;

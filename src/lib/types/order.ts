@@ -1,83 +1,128 @@
-export const ORDER_STATUSES = [
-	'pending',
-	'accepted',
-	'preparing',
-	'ready_for_pickup',
-	'out_for_delivery',
-	'delivered',
-	'cancelled'
-] as const;
+/**
+ * Orders as the backend runs them: paid orders arrive as `new`, the kitchen
+ * accepts (with a prep time) or rejects, marks them ready, then hands them
+ * over to the rider or the customer collecting.
+ */
+export const ORDER_STATUSES = ['new', 'accepted', 'ready', 'picked_up', 'rejected', 'cancelled'] as const;
 
 export type OrderStatus = (typeof ORDER_STATUSES)[number];
 
-/** Statuses for orders still in progress, in lifecycle order. */
-export const ACTIVE_STATUSES: readonly OrderStatus[] = [
-	'pending',
-	'accepted',
-	'preparing',
-	'ready_for_pickup',
-	'out_for_delivery'
-];
+/** Statuses for orders still in the kitchen, in lifecycle order. */
+export const ACTIVE_STATUSES: readonly OrderStatus[] = ['new', 'accepted', 'ready'];
 
-export const PAST_STATUSES: readonly OrderStatus[] = ['delivered', 'cancelled'];
+export const PAST_STATUSES: readonly OrderStatus[] = ['picked_up', 'rejected', 'cancelled'];
 
-export interface Customer {
-	name: string;
-	phone: string;
-	address: string;
+export type Fulfillment = 'delivery' | 'pickup';
+
+/** Prep times the backend accepts, in minutes. */
+export const PREP_MINUTES = [10, 15, 20, 30, 45, 60] as const;
+/** Extra minutes the kitchen can add to an accepted order. */
+export const DELAY_MINUTES = [5, 10, 15] as const;
+
+export const REJECT_REASONS = ['too_busy', 'item_unavailable', 'closing_soon', 'technical_issue', 'other'] as const;
+export type RejectReason = (typeof REJECT_REASONS)[number];
+/** Reasons that can appear on an order, including the automatic one. */
+export type AnyRejectReason = RejectReason | 'not_accepted_in_time';
+
+export type RefundStatus = 'requested' | 'processing' | 'succeeded' | 'failed';
+
+/** Something the kitchen can mark sold out when rejecting for missing items. */
+export interface StockTarget {
+	kind: 'item' | 'variant' | 'option';
+	id: string;
 }
 
-export interface OrderItem {
-	productId: string;
+/** One row in an order list. Times are epoch milliseconds; amounts are öre, VAT included. */
+export interface OrderSummary {
+	id: string;
+	/** Resets every business day. Shown as "#12". */
+	serialNo: number;
+	status: OrderStatus;
+	fulfillment: Fulfillment;
+	customerName: string;
+	/** Undefined in history rows, which carry no items. */
+	itemCount?: number;
+	total: number;
+	/** When the order was paid, which is when it reached the kitchen. */
+	placedAt: number;
+	/** New orders are rejected automatically after this. */
+	acceptDeadline?: number;
+	estimatedReadyAt?: number;
+	readyAt?: number;
+	/** Set for pre-orders: the slot the customer chose. */
+	scheduledFor?: number;
+	refundStatus?: RefundStatus | null;
+}
+
+export interface OrderLineOption {
+	group: string;
 	name: string;
 	quantity: number;
-	/** Minor units (ore). */
-	unitPrice: number;
-	notes?: string;
+	/** Price per unit, öre. */
+	price: number;
+	optionId?: string;
 }
 
-/** All amounts are integers in minor units (ore). */
-export interface Order {
+export interface OrderLine {
 	id: string;
-	/** Shown as "#1024". */
-	serialNo: number;
-	/** ISO timestamp. */
-	placedAt: string;
-	customer: Customer;
-	items: OrderItem[];
-	status: OrderStatus;
+	name: string;
+	variantName?: string;
+	quantity: number;
+	unitPrice: number;
+	total: number;
+	note?: string;
+	options: OrderLineOption[];
+	menuItemId?: string;
+	variantId?: string;
+}
+
+export interface OrderDetail extends OrderSummary {
+	itemCount: number;
+	customer: {
+		name: string;
+		phone?: string;
+		/** One line, e.g. "Götgatan 45, 11826 Stockholm". */
+		address?: string;
+		/** Door code and floor, when given. */
+		addressNote?: string;
+	};
+	note?: string;
+	lines: OrderLine[];
 	subtotal: number;
 	discount: number;
-	/** Name of the applied offer, when there is one. */
-	discountLabel?: string;
-	vat: number;
 	deliveryFee: number;
-	total: number;
-	/** 1-5, only once the customer has rated. */
-	rating?: number;
-	/** ISO timestamp. */
-	deliveredAt?: string;
-	isDelayed: boolean;
+	/** VAT contained in the total, per rate. `rate` is a fraction, e.g. 0.12. */
+	vat: { rate: number; amount: number }[];
+	prepMinutes?: number;
+	acceptedAt?: number;
+	pickedUpAt?: number;
+	rejectedAt?: number;
+	rejectReason?: AnyRejectReason;
+	rejectNote?: string;
+	cancelledAt?: number;
+	cancelReason?: string;
 }
 
-export type SortDirection = 'asc' | 'desc';
+export interface RejectInput {
+	reason: RejectReason;
+	/** Required for "other". */
+	note?: string;
+	/** Required for "item_unavailable": these are marked sold out for today. */
+	unavailable?: StockTarget[];
+}
 
-export interface PastOrdersQuery {
+export interface HistoryQuery {
+	/** Inclusive business dates, yyyy-MM-dd. The backend allows at most 92 days. */
+	from: string;
+	to: string;
+	status?: 'picked_up' | 'rejected' | 'cancelled';
+	/** Customer name or order number. */
 	search?: string;
-	status?: 'delivered' | 'cancelled';
-	/** Inclusive, yyyy-MM-dd. */
-	from?: string;
-	/** Inclusive, yyyy-MM-dd. */
-	to?: string;
-	sortBy: 'placedAt' | 'total';
-	sortDir: SortDirection;
-	page: number;
-	pageSize: number;
 }
 
-export interface Page<T> {
-	items: T[];
-	total: number;
-	page: number;
-	pageSize: number;
+export interface HistoryPage {
+	orders: OrderSummary[];
+	/** Pass back to load the next page. */
+	cursor: string;
+	isDone: boolean;
 }

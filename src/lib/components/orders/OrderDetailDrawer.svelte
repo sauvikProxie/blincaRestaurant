@@ -1,6 +1,7 @@
 <script lang="ts">
 	import Clock from '@lucide/svelte/icons/clock';
 	import MapPin from '@lucide/svelte/icons/map-pin';
+	import MessageSquareText from '@lucide/svelte/icons/message-square-text';
 	import Phone from '@lucide/svelte/icons/phone';
 	import SearchX from '@lucide/svelte/icons/search-x';
 	import User from '@lucide/svelte/icons/user';
@@ -11,56 +12,56 @@
 	import EmptyState from '$lib/components/ui/EmptyState.svelte';
 	import ErrorState from '$lib/components/ui/ErrorState.svelte';
 	import Skeleton from '$lib/components/ui/Skeleton.svelte';
-	import Stars from '$lib/components/ui/Stars.svelte';
 	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
 	import { ordersService } from '$lib/services';
 	import { clock } from '$lib/stores/clock.svelte';
-	import { liveOrders } from '$lib/stores/live-orders.svelte';
-	import { PAST_STATUSES, type Order } from '$lib/types';
+	import { ACTIVE_STATUSES, type OrderDetail } from '$lib/types';
 	import { formatDateTime, formatSerial, formatTime, formatTimeAgo, pluralize } from '$lib/utils/format';
-	import { itemCount } from '$lib/utils/order-totals';
 	import AmountBreakdown from './AmountBreakdown.svelte';
 	import OrderActions from './OrderActions.svelte';
 	import OrderItems from './OrderItems.svelte';
-	import { NEXT_ACTIONS, STATUS_HINTS } from './status-meta';
+	import {
+		FULFILLMENT_META,
+		REFUND_LABELS,
+		REJECT_REASON_LABELS,
+		STATUS_HINTS,
+		isUrgent,
+		timingNote
+	} from './status-meta';
 
 	/** Opened from anywhere with ?order=<id>, so it works from Home and Previous Orders alike. */
 	const orderId = $derived(page.url.searchParams.get('order'));
-	const live = $derived(orderId ? liveOrders.orders.find((o) => o.id === orderId) : undefined);
 
-	let snapshot = $state<Order | null>(null);
+	let order = $state<OrderDetail | null>(null);
 	let loading = $state(false);
 	let error = $state<Error | null>(null);
-	let request = 0;
+	let attempt = $state(0);
 
-	const order = $derived(live ?? (snapshot?.id === orderId ? snapshot : null));
-	const isPast = $derived(order ? PAST_STATUSES.includes(order.status) : false);
-
+	// Live: status changes from this device, other devices or the backend show up straight away.
 	$effect(() => {
 		const id = orderId;
-		const liveOrder = live;
+		void attempt;
 		if (!id) return;
-		if (liveOrder) {
-			snapshot = liveOrder;
-			error = null;
-			return;
-		}
-		load(id);
-	});
-
-	async function load(id: string) {
-		const current = ++request;
+		order = null;
 		loading = true;
 		error = null;
-		try {
-			const result = await ordersService.getById(id);
-			if (current === request) snapshot = result;
-		} catch (e) {
-			if (current === request) error = e instanceof Error ? e : new Error(String(e));
-		} finally {
-			if (current === request) loading = false;
-		}
-	}
+		return ordersService.watchOrder(
+			id,
+			(next) => {
+				order = next;
+				loading = false;
+				error = null;
+			},
+			(e) => {
+				error = e;
+				loading = false;
+			}
+		);
+	});
+
+	const isActive = $derived(order ? ACTIVE_STATUSES.includes(order.status) : false);
+	const timing = $derived(order && isActive ? timingNote(order, clock.now.getTime()) : '');
+	const fulfillment = $derived(order ? FULFILLMENT_META[order.fulfillment] : null);
 
 	function close() {
 		const url = new URL(page.url);
@@ -70,7 +71,7 @@
 </script>
 
 {#snippet footer()}
-	{#if order && NEXT_ACTIONS[order.status]}
+	{#if order && isActive}
 		<OrderActions {order} />
 	{:else if order}
 		<p class="hint">{STATUS_HINTS[order.status]}</p>
@@ -82,62 +83,83 @@
 	eyebrow="Order"
 	title={order ? formatSerial(order.serialNo) : 'Order details'}
 	onclose={close}
-	footer={order && (NEXT_ACTIONS[order.status] || STATUS_HINTS[order.status]) ? footer : undefined}
+	footer={order ? footer : undefined}
 >
 	{#snippet headerExtra()}
 		{#if order}<StatusBadge status={order.status} size="md" />{/if}
 	{/snippet}
 
-	{#if order}
+	{#if order && fulfillment}
 		<div class="sections">
 			<section class="meta" aria-label="Timing">
 				<p class="meta-row">
 					<Clock size={20} strokeWidth={2} aria-hidden="true" />
 					<span>
 						Placed {formatDateTime(order.placedAt)}
-						{#if !isPast}<span class="muted">({formatTimeAgo(order.placedAt, clock.now)})</span>{/if}
+						{#if isActive}<span class="muted">({formatTimeAgo(order.placedAt, clock.now)})</span>{/if}
 					</span>
 				</p>
-				{#if order.deliveredAt}
+				<p class="meta-row">
+					<Badge tone="dark-outline" icon={fulfillment.icon}>{fulfillment.label}</Badge>
+					{#if timing}
+						<span class:urgent={isUrgent(order, clock.now.getTime())}>{timing}</span>
+					{/if}
+				</p>
+				{#if order.pickedUpAt}
+					<p class="meta-row muted">Left the kitchen at {formatTime(order.pickedUpAt)}</p>
+				{/if}
+				{#if order.rejectReason}
 					<p class="meta-row muted">
-						Delivered at {formatTime(order.deliveredAt)}
-						{#if order.isDelayed}<Badge tone="action-outline">Delayed</Badge>{/if}
+						Rejected: {REJECT_REASON_LABELS[order.rejectReason]}{order.rejectNote ? `. "${order.rejectNote}"` : ''}
 					</p>
 				{/if}
-				{#if order.rating}
-					<p class="meta-row">
-						<Stars value={order.rating} size={18} />
-						<span class="muted">Rated {order.rating} out of 5</span>
-					</p>
+				{#if order.cancelReason}
+					<p class="meta-row muted">Cancelled: "{order.cancelReason}"</p>
+				{/if}
+				{#if order.refundStatus}
+					<p class="meta-row"><Badge tone="muted-outline">{REFUND_LABELS[order.refundStatus]}</Badge></p>
 				{/if}
 			</section>
 
 			<section class="customer" aria-labelledby="customer-heading">
 				<h3 id="customer-heading" class="section-title">Customer</h3>
 				<p class="meta-row"><User size={20} strokeWidth={2} aria-hidden="true" />{order.customer.name}</p>
-				<p class="meta-row">
-					<Phone size={20} strokeWidth={2} aria-hidden="true" />
-					<a href="tel:{order.customer.phone.replace(/\s/g, '')}">{order.customer.phone}</a>
-				</p>
-				<p class="meta-row"><MapPin size={20} strokeWidth={2} aria-hidden="true" />{order.customer.address}</p>
+				{#if order.customer.phone}
+					<p class="meta-row">
+						<Phone size={20} strokeWidth={2} aria-hidden="true" />
+						<a href="tel:{order.customer.phone.replace(/\s/g, '')}">{order.customer.phone}</a>
+					</p>
+				{/if}
+				{#if order.customer.address}
+					<p class="meta-row">
+						<MapPin size={20} strokeWidth={2} aria-hidden="true" />
+						<span>
+							{order.customer.address}
+							{#if order.customer.addressNote}<span class="muted">· {order.customer.addressNote}</span>{/if}
+						</span>
+					</p>
+				{/if}
 			</section>
 
+			{#if order.note}
+				<section class="note" aria-label="Note from the customer">
+					<MessageSquareText size={20} strokeWidth={2} aria-hidden="true" />
+					<p>{order.note}</p>
+				</section>
+			{/if}
+
 			<section aria-labelledby="items-heading">
-				<h3 id="items-heading" class="section-title">{pluralize(itemCount(order.items), "item")}</h3>
-				<OrderItems items={order.items} />
+				<h3 id="items-heading" class="section-title">{pluralize(order.itemCount, 'item')}</h3>
+				<OrderItems lines={order.lines} />
 			</section>
 
 			<section aria-labelledby="amount-heading">
 				<h3 id="amount-heading" class="section-title">Amount</h3>
 				<AmountBreakdown {order} />
 			</section>
-
-			{#if isPast}
-				<p class="readonly">This order is complete, so it's read-only.</p>
-			{/if}
 		</div>
 	{:else if error}
-		<ErrorState what="this order" onretry={() => orderId && load(orderId)} />
+		<ErrorState what="this order" onretry={() => attempt++} />
 	{:else if loading}
 		<div class="sections" aria-busy="true">
 			<Skeleton height="20px" width="60%" />
@@ -149,10 +171,9 @@
 		<EmptyState
 			icon={SearchX}
 			title="We couldn't find that order"
-			description="It may have been removed. Check the order number and try again."
+			description="It may belong to another restaurant, or the link is wrong."
 		/>
 	{/if}
-
 </Drawer>
 
 <style>
@@ -188,6 +209,25 @@
 		color: var(--color-text-muted);
 	}
 
+	.urgent {
+		color: var(--color-action);
+	}
+
+	.note {
+		display: flex;
+		align-items: flex-start;
+		gap: var(--space-1);
+		padding: var(--space-2);
+		border-radius: var(--radius-card);
+		background: var(--color-tint);
+	}
+
+	.note :global(svg) {
+		flex: none;
+		margin-top: 2px;
+		color: var(--color-action);
+	}
+
 	.section-title {
 		margin-bottom: var(--space-2);
 		color: var(--color-text-muted);
@@ -200,15 +240,11 @@
 		margin-bottom: var(--space-half);
 	}
 
-	.readonly,
-	.hint {
-		color: var(--color-text-muted);
-		font-size: var(--text-caption);
-		letter-spacing: var(--ls-caption);
-	}
-
 	.hint {
 		flex: 1;
 		align-self: center;
+		color: var(--color-text-muted);
+		font-size: var(--text-caption);
+		letter-spacing: var(--ls-caption);
 	}
 </style>

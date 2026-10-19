@@ -1,6 +1,7 @@
 <script lang="ts">
 	import '../app.css';
 	import { onMount, untrack, type Snippet } from 'svelte';
+	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import appIcon from '$brand/02-App-Icon/blinca-app-icon-rounded-1024.png';
 	import AppShell from '$lib/components/layout/AppShell.svelte';
@@ -21,15 +22,25 @@
 		return () => clock.stop();
 	});
 
-	// Restaurant data and the live order feed only run while someone is signed in.
+	// Live restaurant data and the order board only run while someone is signed in.
 	$effect(() => {
 		if (!auth.session) return;
 		untrack(() => {
-			restaurant.load();
-			liveOrders.load();
+			auth.connect();
+			restaurant.connect();
 			liveOrders.connect();
 		});
-		return () => liveOrders.disconnect();
+		return () => {
+			liveOrders.disconnect();
+			restaurant.disconnect();
+		};
+	});
+
+	// The session can end without a navigation (signed out elsewhere, or expired): back to sign-in.
+	$effect(() => {
+		if (auth.session || bare) return;
+		const target = untrack(() => page.url.pathname + page.url.search);
+		goto(`/login?redirectTo=${encodeURIComponent(target)}`, { replaceState: true });
 	});
 </script>
 

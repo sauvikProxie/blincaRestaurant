@@ -3,6 +3,7 @@
 	import PanelLeft from '@lucide/svelte/icons/panel-left';
 	import { page } from '$app/state';
 	import { liveOrders } from '$lib/stores/live-orders.svelte';
+	import { restaurant } from '$lib/stores/restaurant.svelte';
 	import { isActive, NAV_ITEMS } from './nav';
 
 	interface Props {
@@ -18,11 +19,12 @@
 	let { collapsed, overlayOpen, oncollapse, onnavigate, onsignout }: Props = $props();
 
 	const activeCount = $derived(liveOrders.orders.length);
+	const items = $derived(NAV_ITEMS.filter((item) => !item.managersOnly || restaurant.canSeeReports));
 </script>
 
 <nav id="sidebar" class="sidebar" class:collapsed class:overlay-open={overlayOpen} aria-label="Main">
 	<ul>
-		{#each NAV_ITEMS as item (item.href)}
+		{#each items as item (item.href)}
 			{@const active = isActive(item.href, page.url.pathname)}
 			<li>
 				<a

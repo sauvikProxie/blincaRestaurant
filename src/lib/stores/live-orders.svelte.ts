@@ -1,61 +1,77 @@
-import { ordersService } from '$lib/services';
-import { ACTIVE_STATUSES, type Order, type OrderStatus } from '$lib/types';
+import { ordersService, type Unsubscribe } from '$lib/services';
+import { ACTIVE_STATUSES, type OrderSummary } from '$lib/types';
 import { formatSerial } from '$lib/utils/format';
 import { toasts } from './toasts.svelte';
 
-const isActive = (order: Order) => ACTIVE_STATUSES.includes(order.status);
-const newestFirst = (a: Order, b: Order) => b.placedAt.localeCompare(a.placedAt);
+/** New orders first, then those cooking, then those waiting for pickup; the backend's urgency order within each. */
+const byStage = (orders: OrderSummary[]) =>
+	[...orders].sort((a, b) => ACTIVE_STATUSES.indexOf(a.status) - ACTIVE_STATUSES.indexOf(b.status));
 
-/** Orders in progress, kept live through the orders service subscription. */
+/** Orders in the kitchen, kept live by the backend. */
 class LiveOrders {
-	orders = $state<Order[]>([]);
+	orders = $state<OrderSummary[]>([]);
 	loading = $state(true);
 	error = $state<Error | null>(null);
-	/** Order ids whose status change is in flight. */
+	/** Order ids with an action in flight. */
 	pending = $state<string[]>([]);
-	#unsubscribe: (() => void) | null = null;
-
-	async load() {
-		this.loading = true;
-		this.error = null;
-		try {
-			this.orders = await ordersService.listActive();
-		} catch (error) {
-			this.error = error instanceof Error ? error : new Error(String(error));
-		} finally {
-			this.loading = false;
-		}
-	}
+	newCount = $derived(this.orders.filter((o) => o.status === 'new').length);
+	#unsubscribe: Unsubscribe | null = null;
+	/** Ids already on the board, so only genuinely new orders raise an alert. */
+	#seen: Set<string> | null = null;
 
 	connect() {
 		if (this.#unsubscribe) return;
-		this.#unsubscribe = ordersService.subscribe(({ type, order }) => {
-			this.#apply(order);
-			if (type === 'created') {
-				toasts.show(`New order ${formatSerial(order.serialNo)} from ${order.customer.name}`);
+		this.loading = true;
+		this.error = null;
+		this.#unsubscribe = ordersService.watchBoard(
+			(orders) => {
+				this.#announce(orders);
+				this.orders = byStage(orders);
+				this.loading = false;
+				this.error = null;
+			},
+			(error) => {
+				this.error = error;
+				this.loading = false;
 			}
-		});
+		);
 	}
 
 	disconnect() {
 		this.#unsubscribe?.();
 		this.#unsubscribe = null;
+		this.#seen = null;
+		this.orders = [];
+		this.loading = true;
 	}
 
-	async updateStatus(id: string, status: OrderStatus): Promise<Order> {
+	retry() {
+		this.disconnect();
+		this.connect();
+	}
+
+	/** Runs one order action, marking the order busy meanwhile. The live board shows the result. */
+	async run(id: string, action: () => Promise<void>) {
 		this.pending = [...this.pending, id];
 		try {
-			const order = await ordersService.updateStatus(id, status);
-			this.#apply(order);
-			return order;
+			await action();
 		} finally {
 			this.pending = this.pending.filter((p) => p !== id);
 		}
 	}
 
-	#apply(order: Order) {
-		const others = this.orders.filter((o) => o.id !== order.id);
-		this.orders = isActive(order) ? [...others, order].sort(newestFirst) : others;
+	#announce(orders: OrderSummary[]) {
+		const firstLoad = this.#seen === null;
+		// Bookkeeping only, never rendered, so it needn't be reactive.
+		// eslint-disable-next-line svelte/prefer-svelte-reactivity
+		const seen = this.#seen ?? new Set<string>();
+		for (const order of orders) {
+			if (!firstLoad && !seen.has(order.id) && order.status === 'new') {
+				toasts.show(`New order ${formatSerial(order.serialNo)} from ${order.customerName}`);
+			}
+			seen.add(order.id);
+		}
+		this.#seen = seen;
 	}
 }
 

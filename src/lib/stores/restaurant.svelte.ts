@@ -1,75 +1,60 @@
-import { scheduleService, statusService } from '$lib/services';
-import type { Schedule, StatusOverride } from '$lib/types';
-import { newId } from '$lib/utils/id';
-import {
-	createOverride,
-	getRestaurantStatus,
-	isOverrideActive,
-	resolveToggle
-} from '$lib/utils/restaurant-status';
+import { restaurantService, type Unsubscribe } from '$lib/services';
+import type { PartnerProfile, PauseMinutes, StatusInfo } from '$lib/types';
+import { restaurantState } from '$lib/utils/restaurant-status';
 import { clock } from './clock.svelte';
 
-/** Schedule, manual overrides and the live Open/Closed status derived from them. */
+/** Who is signed in, and whether the restaurant is taking orders right now. Both stay live. */
 class RestaurantStore {
-	schedule = $state<Schedule | null>(null);
-	overrides = $state<StatusOverride[]>([]);
+	profile = $state<PartnerProfile | null>(null);
+	info = $state<StatusInfo | null>(null);
 	loading = $state(true);
 	error = $state<Error | null>(null);
 	busy = $state(false);
 
-	status = $derived(
-		this.schedule ? getRestaurantStatus(this.schedule, this.overrides.at(-1) ?? null, clock.now) : null
-	);
+	/** Re-derived as the clock ticks, so pauses and opening hours flip on time. */
+	state = $derived(this.info ? restaurantState(this.info, clock.now.getTime()) : null);
+	/** Sales and order history are for managers and owners. */
+	canSeeReports = $derived(!!this.profile && this.profile.role !== 'employee');
 
-	async load() {
+	#unsubscribe: Unsubscribe[] = [];
+
+	connect() {
+		if (this.#unsubscribe.length) return;
 		this.loading = true;
 		this.error = null;
-		try {
-			const [schedule, overrides] = await Promise.all([scheduleService.get(), statusService.listOverrides()]);
-			this.schedule = schedule;
-			this.overrides = overrides;
-		} catch (error) {
-			this.error = error instanceof Error ? error : new Error(String(error));
-		} finally {
+		const onError = (error: Error) => {
+			this.error = error;
 			this.loading = false;
-		}
+		};
+		this.#unsubscribe = [
+			restaurantService.watchProfile((profile) => (this.profile = profile), onError),
+			restaurantService.watchStatus((info) => {
+				this.info = info;
+				this.loading = false;
+				this.error = null;
+			}, onError)
+		];
 	}
 
-	async saveSchedule(schedule: Schedule) {
-		this.schedule = await scheduleService.save(schedule);
+	disconnect() {
+		for (const unsubscribe of this.#unsubscribe) unsubscribe();
+		this.#unsubscribe = [];
+		this.profile = null;
+		this.info = null;
+		this.loading = true;
 	}
 
-	/** Flips Open/Closed. Flipping back to what the schedule says returns to schedule. */
-	async toggle() {
-		if (!this.status || !this.schedule) return;
-		const decision = resolveToggle(this.status);
-		if (decision.action === 'return-to-schedule') return this.returnToSchedule();
-
-		const now = new Date();
-		const override = createOverride(this.schedule, decision.status, now, newId('ovr'));
-		await this.#run(async () => {
-			const current = this.#activeOverride(now);
-			if (current) await statusService.endOverride(current.id, now.toISOString());
-			await statusService.startOverride(override);
-			this.overrides = this.overrides
-				.map((o) => (o.id === current?.id ? { ...o, endedAt: now.toISOString() } : o))
-				.concat(override);
-		});
+	retry() {
+		this.disconnect();
+		this.connect();
 	}
 
-	async returnToSchedule() {
-		const now = new Date();
-		const current = this.#activeOverride(now);
-		if (!current) return;
-		await this.#run(async () => {
-			await statusService.endOverride(current.id, now.toISOString());
-			this.overrides = this.overrides.map((o) => (o.id === current.id ? { ...o, endedAt: now.toISOString() } : o));
-		});
+	pause(minutes: PauseMinutes | null) {
+		return this.#run(() => restaurantService.pause(minutes));
 	}
 
-	#activeOverride(now: Date) {
-		const last = this.overrides.at(-1) ?? null;
-		return isOverrideActive(last, now) ? last : null;
+	resume() {
+		return this.#run(() => restaurantService.resume());
 	}
 
 	async #run(work: () => Promise<void>) {

@@ -1,78 +1,66 @@
 import type {
 	Credentials,
-	Discount,
-	DiscountInput,
-	Guide,
-	Order,
-	OrderStatus,
-	Page,
-	PastOrdersQuery,
-	Product,
-	Schedule,
+	HistoryPage,
+	HistoryQuery,
+	OrderDetail,
+	OrderSummary,
+	PartnerProfile,
+	PauseMinutes,
+	RejectInput,
+	SalesSummary,
 	Session,
-	StatusOverride
+	StatusInfo
 } from '$lib/types';
-import type { MonthlyMetrics } from '$lib/utils/performance';
 
 /**
- * Service contracts used by the UI. The mock implementations in ./mock can be
- * replaced with API-backed ones in ./index.ts without touching any component.
+ * Service contracts used by the UI. The Convex implementations live in
+ * ./convex; components and stores only ever see these interfaces.
  */
 
-export interface AuthService {
-	/** Rejects with InvalidCredentialsError when the phone number and password don't match. */
-	signIn(credentials: Credentials): Promise<Session>;
-	signOut(): Promise<void>;
-}
+export type Unsubscribe = () => void;
 
-export type OrderEvent = { type: 'created' | 'updated'; order: Order };
+/** Live data: `onChange` runs with the first result and again whenever it changes on the server. */
+export type Watch<T> = (onChange: (value: T) => void, onError: (error: Error) => void) => Unsubscribe;
+
+export interface AuthService {
+	/**
+	 * Signs in and checks the account belongs to a restaurant. Rejects with
+	 * InvalidCredentialsError, NoRestaurantAccessError or TooManyAttemptsError.
+	 */
+	signIn(credentials: Credentials): Promise<Session>;
+	/** Uses this session for every backend call. `onExpired` runs if the backend ends it. */
+	connect(session: Session, onExpired: () => void): void;
+	/** Ends the session on the backend and stops using it. */
+	signOut(session: Session): Promise<void>;
+}
 
 export interface OrdersService {
-	/** Orders still in progress, newest first. */
-	listActive(): Promise<Order[]>;
-	/** Delivered and cancelled orders, filtered, sorted and paged. */
-	listPast(query: PastOrdersQuery): Promise<Page<Order>>;
-	getById(id: string): Promise<Order | null>;
-	updateStatus(id: string, status: OrderStatus): Promise<Order>;
-	/** Live order changes (a websocket in production). Returns an unsubscribe function. */
-	subscribe(listener: (event: OrderEvent) => void): () => void;
+	/** Orders in the kitchen (new, accepted, ready), most urgent first. */
+	watchBoard: Watch<OrderSummary[]>;
+	/** One order with its lines and amounts; null when it doesn't exist. */
+	watchOrder(id: string, onChange: (order: OrderDetail | null) => void, onError: (error: Error) => void): Unsubscribe;
+	/** `prepMinutes` is required unless the order is a pre-order. */
+	accept(id: string, prepMinutes?: number): Promise<void>;
+	reject(id: string, input: RejectInput): Promise<void>;
+	delay(id: string, minutes: number): Promise<void>;
+	markReady(id: string): Promise<void>;
+	/** Given to the rider, or collected by the customer. */
+	handOver(id: string): Promise<void>;
+	/** Finished orders, newest first. Pass the previous page's cursor to continue. */
+	history(query: HistoryQuery, cursor: string | null, pageSize: number): Promise<HistoryPage>;
+	/** Dev deployments only: places a paid test order for this restaurant. */
+	simulate(): Promise<void>;
 }
 
-export interface MenuService {
-	list(): Promise<Product[]>;
-	setAvailability(id: string, isAvailable: boolean): Promise<Product>;
+export interface RestaurantService {
+	watchProfile: Watch<PartnerProfile>;
+	watchStatus: Watch<StatusInfo>;
+	/** Stops new orders for a while, or until resumed when `minutes` is null. */
+	pause(minutes: PauseMinutes | null): Promise<void>;
+	resume(): Promise<void>;
 }
 
-export interface ScheduleService {
-	get(): Promise<Schedule>;
-	save(schedule: Schedule): Promise<Schedule>;
-}
-
-export interface StatusService {
-	/** Every manual override, oldest first. The last one may still be in force. */
-	listOverrides(): Promise<StatusOverride[]>;
-	startOverride(override: StatusOverride): Promise<void>;
-	endOverride(id: string, endedAt: string): Promise<void>;
-}
-
-export interface DiscountsService {
-	list(): Promise<Discount[]>;
-	create(input: DiscountInput): Promise<Discount>;
-	update(id: string, input: DiscountInput): Promise<Discount>;
-	remove(id: string): Promise<void>;
-}
-
-export interface MonthlyReport {
-	current: MonthlyMetrics;
-	previous: MonthlyMetrics;
-	/** Set when the month is still running: the previous month only counts up to this date. */
-	previousUntil: Date | null;
-}
-
-export interface PerformanceService {
-	getMonthlyReport(month: Date): Promise<MonthlyReport>;
-}
-
-export interface GuidesService {
-	list(): Promise<Guide[]>;
+export interface StatsService {
+	/** Inclusive business dates (yyyy-MM-dd). Managers and owners only. */
+	salesSummary(from: string, to: string): Promise<SalesSummary>;
 }

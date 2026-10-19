@@ -26,7 +26,7 @@
 	const trendText = $derived.by(() => {
 		if (!trend) return '';
 		if (trend.direction === 'flat') return 'No change';
-		return trend.percent === null ? 'New this month' : `${trend.percent}%`;
+		return trend.percent === null ? 'Up from zero' : `${trend.percent}%`;
 	});
 </script>
 

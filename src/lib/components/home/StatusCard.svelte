@@ -1,78 +1,64 @@
 <script lang="ts">
 	import CalendarClock from '@lucide/svelte/icons/calendar-clock';
-	import Undo2 from '@lucide/svelte/icons/undo-2';
+	import Play from '@lucide/svelte/icons/play';
 	import Button from '$lib/components/ui/Button.svelte';
-	import ConfirmDialog from '$lib/components/ui/ConfirmDialog.svelte';
+	import Chip from '$lib/components/ui/Chip.svelte';
 	import ErrorState from '$lib/components/ui/ErrorState.svelte';
+	import Modal from '$lib/components/ui/Modal.svelte';
 	import Skeleton from '$lib/components/ui/Skeleton.svelte';
 	import SpeedLines from '$lib/components/ui/SpeedLines.svelte';
 	import Toggle from '$lib/components/ui/Toggle.svelte';
+	import { errorMessage } from '$lib/convex/errors';
 	import { clock } from '$lib/stores/clock.svelte';
 	import { liveOrders } from '$lib/stores/live-orders.svelte';
 	import { restaurant } from '$lib/stores/restaurant.svelte';
 	import { toasts } from '$lib/stores/toasts.svelte';
-	import { WEEKDAYS } from '$lib/types';
-	import { formatTime, pluralize, relativeDay } from '$lib/utils/format';
-	import {
-		describeStatus,
-		getScheduledState,
-		isOvernight,
-		weekdayIndex
-	} from '$lib/utils/restaurant-status';
+	import { PAUSE_MINUTES, type PauseMinutes } from '$lib/types';
+	import { pluralize } from '$lib/utils/format';
+	import { describeStatus } from '$lib/utils/restaurant-status';
 
-	const status = $derived(restaurant.status);
-	const copy = $derived(status ? describeStatus(status, clock.now) : null);
+	const openState = $derived(restaurant.state);
+	const info = $derived(restaurant.info);
+	const copy = $derived(info ? describeStatus(info, clock.now.getTime()) : null);
+	const isOpen = $derived(openState === 'open');
+	/** Closed by the opening hours (or by Blinca): nothing to switch here. */
+	const closedByHours = $derived(openState === 'closed');
 
-	const todaysHours = $derived.by(() => {
-		const today = restaurant.schedule?.find((d) => d.day === WEEKDAYS[weekdayIndex(clock.now)]);
-		if (!today?.isOpen) return 'Closed today on your schedule';
-		return `Today: ${today.openTime} - ${today.closeTime}${isOvernight(today) ? ' (next day)' : ''}`;
-	});
-
-	let confirmClose = $state(false);
-
-	/** When a manual change made now would hand back to the schedule. */
-	function returnTime(): string {
-		const next = restaurant.schedule ? getScheduledState(restaurant.schedule, new Date()).nextChange : null;
-		if (!next) return 'until you return to schedule';
-		const day = relativeDay(next, new Date());
-		return `until ${formatTime(next)}${day === 'today' ? '' : ` ${day}`}`;
-	}
+	let pauseOpen = $state(false);
+	let pauseFor = $state<PauseMinutes | null>(PAUSE_MINUTES[0]);
 
 	function requestToggle() {
-		if (!status) return;
-		// Switching off always closes, whether it starts an override or hands back to a closed schedule.
-		if (status.isOpen && liveOrders.orders.length > 0) confirmClose = true;
-		else applyToggle();
-	}
-
-	async function applyToggle() {
-		const until = returnTime();
-		try {
-			await restaurant.toggle();
-			confirmClose = false;
-			const now = restaurant.status;
-			if (!now) return;
-			if (now.source === 'schedule') toasts.success("Back on schedule. We'll follow your hours again.");
-			else toasts.success(now.isOpen ? `You're open ${until}.` : `You're closed ${until}. New orders are paused.`);
-		} catch {
-			toasts.error("Sorry, we couldn't change your status. Please try again.");
+		if (isOpen) {
+			pauseFor = PAUSE_MINUTES[0];
+			pauseOpen = true;
+		} else if (openState === 'paused') {
+			resume();
 		}
 	}
 
-	async function returnToSchedule() {
+	async function pause() {
 		try {
-			await restaurant.returnToSchedule();
-			toasts.success("Back on schedule. We'll follow your hours again.");
-		} catch {
-			toasts.error("Sorry, we couldn't change your status. Please try again.");
+			await restaurant.pause(pauseFor);
+			pauseOpen = false;
+			toasts.success(pauseFor ? `New orders paused for ${pauseFor} min.` : 'New orders paused until you switch back on.');
+		} catch (error) {
+			toasts.error(errorMessage(error));
+		}
+	}
+
+	async function resume() {
+		try {
+			await restaurant.resume();
+			toasts.success(restaurant.state === 'open' ? "You're taking orders again." : 'Pause ended.');
+		} catch (error) {
+			toasts.error(errorMessage(error));
 		}
 	}
 </script>
 
-{#if restaurant.error}
-	<section class="card closed"><ErrorState what="your opening status" onretry={() => restaurant.load()} /></section>
-{:else if !status || !copy}
+{#if restaurant.error && !info}
+	<section class="card closed"><ErrorState what="your opening status" onretry={() => restaurant.retry()} /></section>
+{:else if !info || !copy || !openState}
 	<section class="card closed" aria-busy="true">
 		<div class="main">
 			<div class="text">
@@ -83,62 +69,61 @@
 		</div>
 	</section>
 {:else}
-	<section class="card" class:open={status.isOpen} class:closed={!status.isOpen} aria-labelledby="status-headline">
+	<section class="card" class:open={isOpen} class:closed={!isOpen} aria-labelledby="status-headline">
 		<div class="main">
-			<span class="lines"><SpeedLines size="lg" moving={status.isOpen} /></span>
+			<span class="lines"><SpeedLines size="lg" moving={isOpen} /></span>
 			<div class="text">
 				<h2 id="status-headline" class="text-h1">{copy.headline}</h2>
 				<p class="detail" aria-live="polite">{copy.detail}</p>
 			</div>
-			<div class="switch">
-				<Toggle
-					size="lg"
-					checked={status.isOpen}
-					label={status.isOpen ? 'Open. Switch off to close now' : 'Closed. Switch on to open now'}
-					hideLabel
-					inverse={status.isOpen}
-					disabled={restaurant.busy}
-					onchange={requestToggle}
-				/>
-				<span class="switch-label">{status.isOpen ? 'Open' : 'Closed'}</span>
-			</div>
+			{#if !closedByHours}
+				<div class="switch">
+					<Toggle
+						size="lg"
+						checked={isOpen}
+						label={isOpen ? 'Taking orders. Switch off to pause new orders' : 'Paused. Switch on to take orders again'}
+						hideLabel
+						inverse={isOpen}
+						disabled={restaurant.busy}
+						onchange={requestToggle}
+					/>
+					<span class="switch-label">{isOpen ? 'Taking orders' : 'Paused'}</span>
+				</div>
+			{/if}
 		</div>
 
 		<div class="footer">
-			{#if status.source === 'override'}
-				<p class="override-note">You changed this manually. We'll switch back to your schedule automatically.</p>
-				<Button
-					size="sm"
-					variant={status.isOpen ? 'inverse' : 'secondary'}
-					icon={Undo2}
-					onclick={returnToSchedule}
-					loading={restaurant.busy}
-				>
-					Return to schedule
-				</Button>
+			{#if openState === 'paused'}
+				<p class="note">New orders are paused. Orders already in the kitchen still need finishing.</p>
+				<Button size="sm" variant="secondary" icon={Play} onclick={resume} loading={restaurant.busy}>Resume now</Button>
 			{:else}
-				<p class="override-note">
+				<p class="note">
 					<CalendarClock size={18} strokeWidth={2} aria-hidden="true" />
-					{todaysHours}. Following your schedule automatically.
+					Opening hours are managed in the Blinca web portal.
 				</p>
-				<Button size="sm" variant="link" href="/schedule">Edit hours</Button>
 			{/if}
 		</div>
 	</section>
 {/if}
 
-<ConfirmDialog
-	open={confirmClose}
-	title="Close with {pluralize(liveOrders.orders.length, 'active order')}?"
-	body="You'll still need to finish {liveOrders.orders.length === 1
-		? 'it'
-		: 'them'}. We'll pause new orders {returnTime()}."
-	confirmLabel="Close for now"
-	cancelLabel="Stay open"
-	busy={restaurant.busy}
-	onconfirm={applyToggle}
-	oncancel={() => (confirmClose = false)}
-/>
+<Modal open={pauseOpen} title="Pause new orders?" size="sm" onclose={() => (pauseOpen = false)}>
+	<p class="muted">
+		{#if liveOrders.orders.length}
+			You still have {pluralize(liveOrders.orders.length, 'order')} in the kitchen to finish.
+		{/if}
+		Customers can't order from you while paused.
+	</p>
+	<div class="choices" role="group" aria-label="Pause for">
+		{#each PAUSE_MINUTES as minutes (minutes)}
+			<Chip selected={pauseFor === minutes} onclick={() => (pauseFor = minutes)}>{minutes} min</Chip>
+		{/each}
+		<Chip selected={pauseFor === null} onclick={() => (pauseFor = null)}>Until I switch back on</Chip>
+	</div>
+	{#snippet footer()}
+		<Button variant="secondary" onclick={() => (pauseOpen = false)} disabled={restaurant.busy}>Stay open</Button>
+		<Button onclick={pause} loading={restaurant.busy}>Pause orders</Button>
+	{/snippet}
+</Modal>
 
 <style>
 	.card {
@@ -220,7 +205,7 @@
 		background: var(--color-bg);
 	}
 
-	.override-note {
+	.note {
 		display: flex;
 		align-items: center;
 		gap: var(--space-1);
@@ -229,8 +214,11 @@
 		letter-spacing: var(--ls-caption);
 	}
 
-	.open .footer :global(.link) {
-		color: var(--color-text-inverse);
+	.choices {
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--space-1);
+		margin-top: var(--space-3);
 	}
 
 	@media (max-width: 767px) {

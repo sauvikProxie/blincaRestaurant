@@ -5,8 +5,8 @@
 	import Badge from '$lib/components/ui/Badge.svelte';
 	import IconButton from '$lib/components/ui/IconButton.svelte';
 	import Skeleton from '$lib/components/ui/Skeleton.svelte';
-	import { appConfig } from '$lib/config/app.config';
 	import { restaurant } from '$lib/stores/restaurant.svelte';
+	import { formatTime } from '$lib/utils/format';
 
 	interface Props {
 		menuOpen: boolean;
@@ -15,7 +15,11 @@
 
 	let { menuOpen, onmenu }: Props = $props();
 
-	const status = $derived(restaurant.status);
+	const openState = $derived(restaurant.state);
+	const name = $derived(restaurant.profile?.restaurantName ?? '');
+	const pausedUntil = $derived(openState === 'paused' && restaurant.info?.isAcceptingOrders ? restaurant.info.pausedUntil : undefined);
+
+	const LABELS = { open: 'Open', paused: 'Paused', closed: 'Closed' } as const;
 </script>
 
 <header class="header">
@@ -30,12 +34,12 @@
 	</a>
 
 	<span class="divider" aria-hidden="true"></span>
-	<p class="restaurant" title={appConfig.restaurant.name}>{appConfig.restaurant.name}</p>
+	<p class="restaurant" title={name}>{name}</p>
 
 	<a href="/" class="status" aria-live="polite">
-		{#if status}
-			<Badge tone={status.isOpen ? 'tint' : 'muted'} dot size="md">{status.isOpen ? 'Open' : 'Closed'}</Badge>
-			{#if status.source === 'override'}<span class="manual">Manual</span>{/if}
+		{#if openState}
+			<Badge tone={openState === 'open' ? 'tint' : 'muted'} dot size="md">{LABELS[openState]}</Badge>
+			{#if pausedUntil}<span class="manual">until {formatTime(pausedUntil)}</span>{/if}
 		{:else if restaurant.loading}
 			<Skeleton width="88px" height="36px" radius="pill" />
 		{/if}

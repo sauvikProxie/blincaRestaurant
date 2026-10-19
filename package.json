@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Blinca restaurant partner app: live orders, hours, menu, discounts and team performance.",
+  "description": "Blinca restaurant counter app: live orders, pause/resume and quick sales, on the Blinca Convex backend.",
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",
@@ -16,7 +16,11 @@
     "tauri": "tauri"
   },
   "dependencies": {
+    "@date-fns/tz": "^1.5.0",
     "@lucide/svelte": "^1.55.0",
+    "@tauri-apps/api": "^2.12.4",
+    "@tauri-apps/plugin-http": "^2.8.3",
+    "convex": "^1.46.0",
     "date-fns": "^4.4.0"
   },
   "devDependencies": {

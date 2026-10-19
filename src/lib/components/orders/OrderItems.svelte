@@ -1,27 +1,36 @@
 <script lang="ts">
 	import StickyNote from '@lucide/svelte/icons/sticky-note';
-	import type { OrderItem } from '$lib/types';
+	import type { OrderLine } from '$lib/types';
 	import { formatMoney } from '$lib/utils/format';
-	import { lineTotal } from '$lib/utils/order-totals';
 
-	let { items }: { items: OrderItem[] } = $props();
+	let { lines }: { lines: OrderLine[] } = $props();
 </script>
 
 <ul class="items">
-	{#each items as item (item.productId)}
+	{#each lines as line (line.id)}
 		<li>
-			<span class="qty">{item.quantity} x</span>
+			<span class="qty">{line.quantity} x</span>
 			<div class="info">
-				<p>{item.name}</p>
-				<p class="unit">{formatMoney(item.unitPrice)} each</p>
-				{#if item.notes}
+				<p>{line.name}{#if line.variantName}<span class="variant">, {line.variantName}</span>{/if}</p>
+				{#if line.options.length}
+					<ul class="options">
+						{#each line.options as option, index (index)}
+							<li>
+								{option.quantity > 1 ? `${option.quantity} x ` : ''}{option.name}
+								<span class="group">({option.group})</span>
+							</li>
+						{/each}
+					</ul>
+				{/if}
+				<p class="unit">{formatMoney(line.unitPrice)} each</p>
+				{#if line.note}
 					<p class="notes">
 						<StickyNote size={16} strokeWidth={2} aria-hidden="true" />
-						<span><span class="visually-hidden">Note: </span>{item.notes}</span>
+						<span><span class="visually-hidden">Note: </span>{line.note}</span>
 					</p>
 				{/if}
 			</div>
-			<span class="line">{formatMoney(lineTotal(item))}</span>
+			<span class="line">{formatMoney(line.total)}</span>
 		</li>
 	{/each}
 </ul>
@@ -33,7 +42,7 @@
 		list-style: none;
 	}
 
-	li {
+	.items > li {
 		display: grid;
 		grid-template-columns: 40px 1fr auto;
 		gap: var(--space-1);
@@ -41,7 +50,7 @@
 		border-bottom: 1px solid var(--color-border);
 	}
 
-	li:first-child {
+	.items > li:first-child {
 		padding-top: 0;
 	}
 
@@ -56,6 +65,22 @@
 		min-width: 0;
 	}
 
+	.variant {
+		color: var(--color-text-muted);
+	}
+
+	.options {
+		margin: 0;
+		padding: 0;
+		list-style: none;
+	}
+
+	.options li::before {
+		content: '+ ';
+		color: var(--color-action);
+	}
+
+	.group,
 	.unit {
 		color: var(--color-text-muted);
 		font-size: var(--text-caption);

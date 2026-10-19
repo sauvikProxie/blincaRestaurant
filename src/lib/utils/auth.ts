@@ -2,14 +2,13 @@ import type { Credentials } from '$lib/types';
 
 export type CredentialErrors = Partial<Record<keyof Credentials, string>>;
 
-/** Drops the spaces, dashes, dots and brackets people type in phone numbers. */
-export const normalizePhone = (input: string) => input.replace(/[\s\-.()]/g, '');
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-export function validateCredentials({ phone, password }: Credentials): CredentialErrors {
+export function validateCredentials({ email, password }: Credentials): CredentialErrors {
 	const errors: CredentialErrors = {};
-	const normalized = normalizePhone(phone);
-	if (!normalized) errors.phone = 'Enter your phone number';
-	else if (!/^\+?\d{6,15}$/.test(normalized)) errors.phone = 'Use digits only, e.g. 070 123 45 67';
+	const trimmed = email.trim();
+	if (!trimmed) errors.email = 'Enter your email address';
+	else if (!EMAIL_PATTERN.test(trimmed)) errors.email = 'Use an email address, e.g. name@restaurant.se';
 	if (!password) errors.password = 'Enter your password';
 	return errors;
 }

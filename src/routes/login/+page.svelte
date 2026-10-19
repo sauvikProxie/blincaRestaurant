@@ -8,11 +8,11 @@
 	import lockup from '$brand/01-Logo/SVG/blinca-lockup-cranberry.svg';
 	import Button from '$lib/components/ui/Button.svelte';
 	import SpeedLines from '$lib/components/ui/SpeedLines.svelte';
-	import { InvalidCredentialsError } from '$lib/services';
+	import { InvalidCredentialsError, NoRestaurantAccessError, TooManyAttemptsError } from '$lib/services';
 	import { auth } from '$lib/stores/auth.svelte';
 	import { safeRedirect, validateCredentials } from '$lib/utils/auth';
 
-	let phone = $state('');
+	let email = $state('');
 	let password = $state('');
 	let showPassword = $state(false);
 	let submitted = $state(false);
@@ -20,28 +20,32 @@
 	/** Set when the sign-in request itself fails, as opposed to a field being empty. */
 	let failure = $state('');
 
-	let phoneInput = $state<HTMLInputElement>();
+	let emailInput = $state<HTMLInputElement>();
 	let passwordInput = $state<HTMLInputElement>();
 
-	const errors = $derived(submitted ? validateCredentials({ phone, password }) : {});
+	const errors = $derived(submitted ? validateCredentials({ email, password }) : {});
+
+	function failureMessage(error: unknown): string {
+		if (error instanceof InvalidCredentialsError) return "That email and password don't match. Please try again.";
+		if (error instanceof NoRestaurantAccessError) return `${error.message}. Use the login your restaurant was given for Blinca.`;
+		if (error instanceof TooManyAttemptsError) return 'Too many attempts. Wait a few seconds, then try again.';
+		return "Sorry, we couldn't sign you in just now. Check your connection and try again.";
+	}
 
 	async function submit(event: SubmitEvent) {
 		event.preventDefault();
 		submitted = true;
 		failure = '';
-		const found = validateCredentials({ phone, password });
-		if (found.phone) return phoneInput?.focus();
+		const found = validateCredentials({ email, password });
+		if (found.email) return emailInput?.focus();
 		if (found.password) return passwordInput?.focus();
 
 		busy = true;
 		try {
-			await auth.signIn({ phone, password });
+			await auth.signIn({ email, password });
 		} catch (error) {
 			busy = false;
-			failure =
-				error instanceof InvalidCredentialsError
-					? "That phone number and password don't match. Please try again."
-					: "Sorry, we couldn't sign you in just now. Please try again.";
+			failure = failureMessage(error);
 			// Clear the password for a fresh try without flagging it as missing.
 			password = '';
 			submitted = false;
@@ -67,24 +71,29 @@
 		<div class="intro">
 			<h1 class="text-h2">Welcome back</h1>
 			<p class="muted">Sign in to run your restaurant.</p>
+			{#if auth.expired}
+				<p class="notice" role="status">Your session ended, so we signed you out. Please sign in again.</p>
+			{/if}
 		</div>
 
 		<form class="form" novalidate onsubmit={submit}>
 			<div class="field">
-				<label class="field-label" for="login-phone">Phone number</label>
+				<label class="field-label" for="login-email">Email</label>
 				<input
-					bind:this={phoneInput}
-					id="login-phone"
+					bind:this={emailInput}
+					id="login-email"
 					class="input"
-					type="tel"
-					inputmode="tel"
+					type="email"
+					inputmode="email"
 					autocomplete="username"
-					bind:value={phone}
+					autocapitalize="none"
+					spellcheck="false"
+					bind:value={email}
 					disabled={busy}
-					aria-invalid={!!errors.phone}
-					aria-describedby={errors.phone ? 'login-phone-error' : undefined}
+					aria-invalid={!!errors.email}
+					aria-describedby={errors.email ? 'login-email-error' : undefined}
 				/>
-				{#if errors.phone}<p id="login-phone-error" class="field-error">{errors.phone}</p>{/if}
+				{#if errors.email}<p id="login-email-error" class="field-error">{errors.email}</p>{/if}
 			</div>
 
 			<div class="field">
@@ -212,6 +221,14 @@
 
 	.reveal:disabled {
 		cursor: not-allowed;
+	}
+
+	.notice {
+		margin-top: var(--space-1);
+		color: var(--color-text-muted);
+		font-size: var(--text-caption);
+		line-height: var(--lh-caption);
+		letter-spacing: var(--ls-caption);
 	}
 
 	/* Blush panel with Cranberry Deep text, like other error messages */

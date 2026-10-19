@@ -1,19 +1,36 @@
 # Blinca for restaurants
 
-The restaurant-side app of the Blinca delivery platform. Owners and staff use it to run live orders, set opening hours, switch dishes on and off, manage discounts and check monthly team performance.
+The restaurant-side counter app of the Blinca delivery platform. Kitchen staff use it to see live orders, accept or reject them, pause new orders, and check quick sales numbers.
 
-There's no backend yet: all data comes from a mock service layer, and changes are kept in the browser's `localStorage`.
+Menu, opening hours, discounts and team accounts are managed in the Blinca web portal (`apps/partner` in the backend monorepo), not here.
+
+All data comes from the Blinca Convex backend (the `Blinca backend` repo). This app doesn't change the backend: it uses the same functions as the web portal.
 
 ## Run it
 
-Requirements: Node.js 20+ and npm.
+Requirements: Node.js 20+, npm, and a running Blinca backend.
+
+### 1. Start the backend
+
+In the `Blinca backend` repo (Bun 1.4; without a global install, `npx bun@1.4.2 ...` works too):
 
 ```bash
+bun install
+cd packages/backend
+bun run dev                              # local Convex backend on 127.0.0.1:3210 / :3211
+npx convex run vatRates:seedDefaults     # once per fresh deployment
+bun run seed:dev                         # demo restaurant + owner@blinca.test / password123
+```
+
+### 2. Start this app
+
+```bash
+cp .env.example .env    # URLs of the backend; the defaults match a local `convex dev`
 npm install
 npm run dev
 ```
 
-Open http://localhost:5173 and sign in with phone `0987654321` and password `admin*123` (set in `mock.credentials` in the config).
+Open http://localhost:5173 and sign in with `owner@blinca.test` / `password123`. On a local backend, **Simulate order** on Home places a paid test order (set `PUBLIC_DEV_TOOLS=false` to hide it).
 
 | Command | What it does |
 | --- | --- |
@@ -25,49 +42,33 @@ Open http://localhost:5173 and sign in with phone `0987654321` and password `adm
 | `npm test` | Run the unit tests (Vitest) |
 | `npm run verify` | Run check, lint and tests together |
 
-### Native app (optional)
+### Native app
 
-The web app is wrapped by Tauri 2 in `src-tauri/`, with no custom Rust commands. You need Rust (stable) for desktop builds, plus the Android SDK/NDK and JDK 17 for Android (see `techStack.txt`).
-
-On Android the app draws edge to edge, behind the status bar, camera cutout and navigation bar. `src-tauri/gen/android/.../MainActivity.kt` is edited by hand: it keeps the bar icons dark and passes the bar sizes to the page, which pads the header, sidebar, sheets and toasts with the `--safe-*` tokens in `src/app.css`. Keep `gen/android` in version control and don't re-run `tauri android init`, or that change is lost.
+The web app is wrapped by Tauri 2 in `src-tauri/`. You need Rust (stable) for desktop builds, plus the Android SDK/NDK and JDK 17 for Android (see `techStack.txt`).
 
 ```bash
 npm run tauri dev      # desktop window
 npm run tauri build    # desktop installer
-npm run tauri android init && npm run tauri android dev
+npm run tauri android dev
 ```
 
-### Reset the demo data
+**Android and a local backend:** the emulator can't reach `127.0.0.1` on your computer. Forward the backend ports first: `adb reverse tcp:3210 tcp:3210 && adb reverse tcp:3211 tcp:3211`.
 
-The mock data is generated on first load and saved in `localStorage` under keys starting with `blinca:`. To start fresh, clear site data in the browser, or run `Object.keys(localStorage).filter(k => k.startsWith('blinca:')).forEach(k => localStorage.removeItem(k))` in the console and reload.
+**Production backend:** set `PUBLIC_CONVEX_URL` and `PUBLIC_CONVEX_SITE_URL` before `npm run tauri build`. The HTTP plugin only allows `https://*.convex.site`, `127.0.0.1` and `localhost` (`src-tauri/capabilities/default.json`); add a custom domain there if the backend gets one.
 
-## Stack
-
-SvelteKit 2 + Svelte 5 (runes), TypeScript 6, Vite 8, plain CSS with design tokens, a static SPA via `adapter-static`, and Tauri 2.
-
-Tools added beyond `techStack.txt`:
-- `date-fns` for dates
-- `@lucide/svelte` for icons (2 px rounded stroke on a 24 px grid, which matches the brand icon spec)
-- Vitest for tests
-- ESLint
-
-Leaflet is listed in the stack but isn't used, because none of the features need a map.
+On Android the app draws edge to edge, behind the status bar, camera cutout and navigation bar. `src-tauri/gen/android/.../MainActivity.kt` is edited by hand: it keeps the bar icons dark and passes the bar sizes to the page, which pads the header, sidebar, sheets and toasts with the `--safe-*` tokens in `src/app.css`. Keep `gen/android` in version control and don't re-run `tauri android init`, or that change is lost.
 
 ## Features
 
 | Page | Route | Highlights |
 | --- | --- | --- |
-| Sign in | `/login` | Phone number and password, show/hide password, field validation; every other page redirects here until you sign in and returns you to where you were. The session is remembered on the device. Sign out sits at the bottom of the sidebar and asks first if orders are still active |
-| Home | `/` | Open/Closed card with automatic status, manual override and "Return to schedule"; live Active Orders table that receives a new mock order every 60-90 s while open |
-| Scheduled Hours | `/schedule` | Per-day open toggle and times, overnight hours with a "(next day)" hint, validation, "Copy to" all days / weekdays / weekend, unsaved-changes bar and leave guard |
-| Previous Orders | `/orders` | Search, status filter, date range, sorting by time and amount, pagination |
-| Order detail | `?order=<id>` on any page | Side drawer (bottom sheet on phones) with items, notes, the calculated amount breakdown, and Accept / Reject / Mark preparing / Mark ready for active orders |
-| Team Performance | `/performance` | Month picker; delivered, cancelled, delayed, rating and hours-missed cards with trend versus last month; daily orders chart |
-| Menu | `/menu` | All / Unavailable tabs with counts, grouped by category, search, instant toggle with Undo |
-| Discounts | `/discounts` | Coupon-style cards for 5 offer types; Active / Scheduled / Expired / Paused filters; create, edit and delete with validation |
-| What's New | `/whats-new` | Expandable step-by-step guides that link to the relevant pages |
+| Sign in | `/login` | Email and password (the same partner accounts as the web portal). Customer accounts are turned away. Every other page redirects here until you sign in; the session is remembered on the device |
+| Home | `/` | Open / Paused / Closed card driven by the backend; switch off to pause new orders for 15, 30 or 60 min or until resumed. Live Active Orders table (new orders first) with accept deadlines and ready times. A toast announces each new order |
+| Order detail | `?order=<id>` on any page | Live side drawer (bottom sheet on phones): customer, address, notes, items with options, amounts with VAT. New: Accept (prep time 10-60 min) or Reject (reason, optionally marking items sold out). Preparing: Add time, Mark ready. Ready: Handed to rider / Collected by customer |
+| Previous Orders | `/orders` | Managers and owners. Search by name or order number, status filter, date range (up to 92 days), Load more |
+| Sales | `/sales` | Managers and owners. Today / 7 / 30 days: revenue, orders, average order, rejections, average prep time, each compared with the period before; orders per day; best sellers |
 
-Every data view has a loading skeleton, an empty state and an error state with a retry button. To see the error states, set `mock.failureRate` to `1` in the config.
+Employees only see Home. Every data view has a loading skeleton, an empty state and an error state with a retry button.
 
 ## Project structure
 
@@ -76,82 +77,67 @@ Assets/                    Brand files (logo, app icon, font, colours) - the sin
 src/
   app.css                  Design tokens (imports Assets/04-Colour), @font-face, type scale, form styles
   lib/
-    config/app.config.ts   Currency, VAT, date/time formats, restaurant name, mock settings
-    types/                 Order, Product, Schedule, Discount, Guide models
+    config/app.config.ts   Currency, date/time formats (Stockholm time), page sizes
+    convex/
+      api.ts               Typed references to the backend functions this app calls
+      client.ts            The Convex connection (websocket, live queries)
+      auth-http.ts         Better Auth sign-in / token / sign-out over HTTP
+      errors.ts            Backend error codes to messages
+    types/                 Order, restaurant status, sales and auth models
     services/
       types.ts             Service interfaces the UI depends on
-      index.ts             Wires the mock implementations - swap for API ones here
+      index.ts             Wires the Convex implementations
+      convex/              Convex-backed auth, orders, restaurant and stats services
       storage.ts           Safe localStorage wrapper
-      mock/                Seeded data, latency simulation, order simulation
-    stores/                Svelte 5 rune stores: clock, restaurant status, live orders, toasts, Resource
-    utils/                 Pure logic + tests: restaurant-status, order-totals, schedule-validation,
-                           discounts, performance, format
+    stores/                Svelte 5 rune stores: auth, live orders, restaurant, clock, toasts, Resource
+    utils/                 Pure logic + tests: restaurant-status, stockholm-time, format, performance, auth
     components/
-      ui/                  StatusBadge, StatCard, DataTable, Toggle, Tabs, Modal, Drawer, Toaster, ...
+      ui/                  StatusBadge, StatCard, DataTable, Toggle, Modal, Drawer, Toaster, ...
       layout/              AppShell, Header, Sidebar, nav
-      orders/ home/ schedule/ menu/ discounts/ performance/ guides/
+      orders/ home/ performance/
   routes/                  One folder per page
-src-tauri/                 Tauri shell
+src-tauri/                 Tauri shell (+ HTTP plugin for sign-in)
 ```
 
 ## How it works
 
-### Open/Closed status
+### Connecting to Convex
 
-`getRestaurantStatus(schedule, override, now)` in `src/lib/utils/restaurant-status.ts` is a pure function covered by unit tests.
+- **Live data.** Order board, order details, restaurant status and the signed-in profile are Convex queries watched over one websocket (`ConvexClient.onUpdate`). Changes from this device, other devices or the backend (e.g. auto-reject) appear without polling.
+- **Actions** are Convex mutations (`orders.accept`, `orders.reject`, `restaurants.pauseOrders`, ...). The backend enforces every rule: allowed transitions, prep times, permissions. The UI shows its error messages.
+- **No generated API.** This app lives outside the backend monorepo, so `src/lib/convex/api.ts` mirrors the function names and shapes by hand. If a backend function changes, update it there. Moving the app into the monorepo would allow `@blinca/backend/convex/_generated/api` instead.
 
-- **Automatic by default.** The status is worked out from the schedule and the current time. A shared clock ticks every 10 s, so the status flips on time without a refresh.
-- **Overnight hours.** A closing time earlier than the opening time runs past midnight. At 01:30 the restaurant is still open under the previous day's schedule, even if the new day is a closed day.
-- **Manual override.** Flipping the switch starts an override that expires at the next scheduled opening or closing time. After that, the app is back in automatic mode. Flipping back to what the schedule says ends the override straight away, as does "Return to schedule".
-- **Confirmation.** Closing while there are active orders asks for confirmation first.
-- **Override history.** Every override is kept. Team Performance uses this history to calculate Hours Missed: closed overrides that overlap scheduled open hours.
+### Signing in without a server
 
-### Money
+The backend's web apps keep the Better Auth session in a cookie through a SvelteKit server proxy. This app has no server, so it uses what the backend's `convex()` auth plugin already supports:
 
-All amounts are integers in öre.
+1. `POST /api/auth/sign-in/email` returns the session token in its JSON body. It is stored in `localStorage`.
+2. `GET /api/auth/convex/token` with `Authorization: Bearer <token>` returns a short-lived JWT, which the Convex client fetches and refreshes on its own (`setAuth`).
+3. After sign-in the app checks `partnerProfiles.me`, so only active restaurant accounts get in.
 
-`calculateOrderTotals` works as follows:
-- subtotal = Σ quantity × unit price
-- VAT = 12% × (subtotal − discount), rounded to the öre
-- total = subtotal − discount + VAT + delivery fee
+The Convex site URL sends no CORS headers, so:
+- **In Tauri**, auth requests go out from Rust through `@tauri-apps/plugin-http`, with the Origin header removed (`unsafe-headers` feature). Better Auth's CSRF origin check protects cookie sessions; this client never sends a cookie (the plugin's `cookies` feature is off).
+- **In a plain browser** (`npm run dev` / `preview`), Vite proxies `/api/auth` to the site URL and strips cookies both ways, so it can't overwrite another localhost app's session cookie.
 
-The order drawer always recalculates the totals from the items; it never displays stored totals. A test checks that every seeded order adds up.
+If the session ends (signed out elsewhere, expired), the app returns to sign-in and says why. Network failures while refreshing the token are retried, not treated as a sign-out.
 
-### Swapping in a real backend
+### Open / Paused / Closed
 
-The UI only imports from `$lib/services`. To connect an API, implement the interfaces in `src/lib/services/types.ts` and replace the `createMock*` calls in `src/lib/services/index.ts`.
+`restaurantState()` in `src/lib/utils/restaurant-status.ts` is the same rule as the backend's: switched off by Blinca → closed; paused → paused; otherwise the opening hours decide. Hours are read in Stockholm time with the backend's own helpers (`stockholm-time.ts`, ported from `convex/lib/stockholmTime.ts`), including overnight ranges and special days. A shared clock ticks every 10 s, so pauses and hours flip on time.
 
-| Service | What to connect |
-| --- | --- |
-| `AuthService.signIn / signOut` | Auth endpoint. `signIn` must reject with `InvalidCredentialsError` for a wrong phone number or password, so the page can tell that apart from a network failure. Store a real token in `Session` |
-| `OrdersService.listActive / listPast / getById / updateStatus` | Orders REST endpoints. `listPast` already takes server-style query params (search, status, dates, sort, page) |
-| `OrdersService.subscribe` | Websocket or SSE for new orders and status changes. The mock version runs the order simulation |
-| `ScheduleService`, `StatusService` | Opening hours and override history. Status logic stays on the client but could move to the server |
-| `MenuService`, `DiscountsService` | Product availability and discount CRUD |
-| `PerformanceService.getMonthlyReport` | Metrics aggregated on the server. The mock computes them from orders |
+### Time and money
 
-## Configuration
-
-Everything that changes per market lives in `src/lib/config/app.config.ts`:
-- Currency: `SEK`, formatted with `sv-SE`, e.g. "149,00 kr"
-- VAT rate: 12%
-- Date/time patterns: 24-hour clock
-- Orders page size, and the delay threshold (45 min)
-- Restaurant name
-- Mock latency, failure rate, order simulation and the static sign-in credentials
+- Every time is shown on the restaurant's clock (Europe/Stockholm), whatever the device's time zone. Business days start at 04:00, as on the backend.
+- Amounts are integers in öre and **include VAT**, exactly as the backend charged them; the drawer shows the VAT contained per rate.
 
 ## Brand implementation
 
 - **Colours.** `src/app.css` imports `Assets/04-Colour/blinca-colours.css` and maps it to semantic tokens (`--color-action`, `--color-tint`, ...). Components only use tokens; there are no hex values in components.
 - **Logo.** The header loads the logo straight from `Assets/01-Logo/SVG`: the lockup on wide screens and the mark on phones. The favicon and Tauri icons come from `Assets/02-App-Icon`.
-- **Typography.** Mundial Regular is loaded from `Assets/03-Fonts`. There is one weight only and no bold anywhere; hierarchy comes from size, spacing and colour. Text is in sentence case, including the coupon headlines ("60% off").
-- **Interface.** Buttons are pills, 52 px tall. Cards have a 16 px radius and sheets 24 px, on an 8 px spacing grid. Filter chips are Blush with a Cranberry edge when selected. Speed lines appear on the status card, empty states and coupons.
-- **Contrast.**
-  - Small white text sits on Cranberry Deep, never on Cranberry. The "open" status card uses Cranberry Deep for this reason.
-  - Saffron always has Ink text, and is only used for offers and ratings.
-- **No green or blue in the palette.**
-  - The seven order statuses are told apart by fill style (solid, outline or tint) plus a unique icon.
-  - Trends are Ink when good and Cranberry Deep when bad, always with an arrow.
+- **Typography.** Mundial Regular is loaded from `Assets/03-Fonts`. There is one weight only and no bold anywhere; hierarchy comes from size, spacing and colour. Text is in sentence case.
+- **Interface.** Buttons are pills, 52 px tall. Cards have a 16 px radius and sheets 24 px, on an 8 px spacing grid. Filter chips are Blush with a Cranberry edge when selected. Speed lines appear on the status card and empty states.
+- **Contrast.** Small white text sits on Cranberry Deep, never on Cranberry. The "open" status card uses Cranberry Deep for this reason.
+- **No green or blue in the palette.** The six order statuses are told apart by fill style (solid, outline or tint) plus a unique icon. Trends are Ink when good and Cranberry Deep when bad, always with an arrow.
 - **Voice.** Short and warm, numbers as digits, and an apology when something fails. There are no emoji, and at most one exclamation mark.
 
 ### Font limitation (action needed before launch)
@@ -162,26 +148,11 @@ To keep the UI readable, the `@font-face` in `src/app.css` uses `unicode-range` 
 
 **Before launch:** put the licensed font in `Assets/03-Fonts` and delete the `unicode-range` line.
 
-## Assumptions
-
-- The market is Sweden: SEK, 12% VAT (restaurant rate) charged on the food subtotal after discounts, a flat 29 kr delivery fee, and the 24-hour clock.
-- An order counts as delayed when it's delivered more than 45 minutes after it was placed.
-- Hours Missed compares override history with the *current* schedule, since schedule history isn't stored.
-- In the current month, performance is compared with the same days of the previous month, so a partial month isn't compared with a full one.
-- "All Products" shows every dish, with unavailable ones dimmed. "Unavailable Products" shows only the switched-off dishes.
-- Discount filters:
-  - **Active** means live and switched on.
-  - **Paused** means switched off and not expired.
-  - **Scheduled** and **Expired** go by the dates.
-- A Swedish Bank offer has no brand colour; the bank tag is neutral, inside the palette.
-- Mock riders collect ready orders after about 3 minutes and deliver about 6 minutes later. On load, active orders older than 3 hours are tidied up.
-
 ## Next steps
 
-- Replace the mock services with API clients and a realtime order feed.
-- Replace the static sign-in with real accounts (the credentials currently ship inside the app, so they are not a security boundary), plus session expiry and multi-restaurant support (the name currently comes from config).
-- Add product photos (the `image` field is ready; a placeholder shows until then).
-- Store schedule history, so Hours Missed stays accurate after hours change.
-- Add sound and push notifications for new orders on counter tablets.
-- Add end-to-end tests (e.g. Playwright) for the main flows.
+- Sound and push notifications for new orders on counter tablets (today: a toast).
+- Keep the session token in the OS keychain instead of `localStorage`.
+- An employee-level "today's numbers" query on the backend, so counter staff can see quick stats too.
+- Courier status after hand-over, once the backend's courier milestone (M4) lands.
+- Move the app into the backend monorepo to use the generated, always-in-sync API types.
 - Licence the full Mundial font.

@@ -1,60 +1,109 @@
 <script lang="ts">
 	import Button from '$lib/components/ui/Button.svelte';
-	import ConfirmDialog from '$lib/components/ui/ConfirmDialog.svelte';
+	import { errorMessage } from '$lib/convex/errors';
+	import { ordersService } from '$lib/services';
 	import { liveOrders } from '$lib/stores/live-orders.svelte';
+	import { restaurant } from '$lib/stores/restaurant.svelte';
 	import { toasts } from '$lib/stores/toasts.svelte';
-	import type { Order, OrderStatus } from '$lib/types';
+	import { DELAY_MINUTES, PREP_MINUTES, type OrderDetail, type RejectInput } from '$lib/types';
 	import { formatSerial } from '$lib/utils/format';
-	import { NEXT_ACTIONS, type OrderAction } from './status-meta';
+	import MinutesDialog from './MinutesDialog.svelte';
+	import RejectDialog from './RejectDialog.svelte';
 
-	let { order }: { order: Order } = $props();
+	let { order }: { order: OrderDetail } = $props();
 
-	const actions = $derived(NEXT_ACTIONS[order.status] ?? []);
 	const busy = $derived(liveOrders.pending.includes(order.id));
-	let confirming = $state<OrderAction | null>(null);
-	let running = $state<OrderStatus | null>(null);
+	const serial = $derived(formatSerial(order.serialNo));
+	let dialog = $state<'accept' | 'reject' | 'delay' | null>(null);
+	let running = $state<string | null>(null);
 
-	const DONE_MESSAGES: Partial<Record<OrderStatus, (serial: string) => string>> = {
-		accepted: (s) => `Got it. ${s} is accepted.`,
-		preparing: (s) => `${s} is being prepared.`,
-		ready_for_pickup: (s) => `${s} is ready. We've let the rider know.`,
-		cancelled: (s) => `${s} was rejected. We've told the customer.`
-	};
+	/** The restaurant's usual prep time, snapped to the nearest choice the backend allows. */
+	const suggestedPrep = $derived.by(() => {
+		const usual = restaurant.info?.prepTimeMinutes ?? 20;
+		return PREP_MINUTES.reduce((best, m) => (Math.abs(m - usual) < Math.abs(best - usual) ? m : best));
+	});
 
-	async function run(action: OrderAction) {
-		running = action.to;
+	async function act(key: string, work: () => Promise<void>, done: string) {
+		running = key;
 		try {
-			await liveOrders.updateStatus(order.id, action.to);
-			toasts.success(DONE_MESSAGES[action.to]?.(formatSerial(order.serialNo)) ?? 'Order updated');
-			confirming = null;
-		} catch {
-			toasts.error("Sorry, that didn't go through. Please try again.");
+			await liveOrders.run(order.id, work);
+			toasts.success(done);
+			dialog = null;
+		} catch (error) {
+			toasts.error(errorMessage(error));
 		} finally {
 			running = null;
 		}
 	}
+
+	function accept() {
+		// Pre-orders already have a time: the backend works out when they must be ready.
+		if (order.scheduledFor) {
+			act('accept', () => ordersService.accept(order.id), `Got it. ${serial} is accepted.`);
+		} else {
+			dialog = 'accept';
+		}
+	}
+
+	const acceptWith = (minutes: number) =>
+		act('accept', () => ordersService.accept(order.id, minutes), `Got it. ${serial} will be ready in ${minutes} min.`);
+
+	const reject = (input: RejectInput) =>
+		act('reject', () => ordersService.reject(order.id, input), `${serial} was rejected. We've told the customer.`);
+
+	const delay = (minutes: number) =>
+		act('delay', () => ordersService.delay(order.id, minutes), `Added ${minutes} min to ${serial}.`);
+
+	const markReady = () =>
+		act(
+			'ready',
+			() => ordersService.markReady(order.id),
+			order.fulfillment === 'delivery' ? `${serial} is ready. We've let the rider know.` : `${serial} is ready for the customer.`
+		);
+
+	const handOver = () => act('handOver', () => ordersService.handOver(order.id), `${serial} has left the kitchen.`);
 </script>
 
-{#each actions as action (action.to)}
-	<Button
-		variant={action.variant}
-		loading={running === action.to}
-		disabled={busy}
-		onclick={() => (action.confirm ? (confirming = action) : run(action))}
-	>
-		{action.label}
+{#if order.status === 'new'}
+	<Button variant="secondary" disabled={busy} onclick={() => (dialog = 'reject')}>Reject</Button>
+	<Button loading={running === 'accept' && !dialog} disabled={busy} onclick={accept}>Accept</Button>
+{:else if order.status === 'accepted'}
+	<Button variant="secondary" disabled={busy} onclick={() => (dialog = 'delay')}>Add time</Button>
+	<Button loading={running === 'ready'} disabled={busy} onclick={markReady}>Mark ready</Button>
+{:else if order.status === 'ready'}
+	<Button loading={running === 'handOver'} disabled={busy} onclick={handOver}>
+		{order.fulfillment === 'delivery' ? 'Handed to rider' : 'Collected by customer'}
 	</Button>
-{/each}
-
-{#if confirming?.confirm}
-	<ConfirmDialog
-		open
-		title={confirming.confirm.title}
-		body={confirming.confirm.body}
-		confirmLabel={confirming.confirm.confirmLabel}
-		cancelLabel="Keep order"
-		busy={running !== null}
-		onconfirm={() => confirming && run(confirming)}
-		oncancel={() => (confirming = null)}
-	/>
 {/if}
+
+<MinutesDialog
+	open={dialog === 'accept'}
+	title="Accept {serial}"
+	body="How long until it's ready? The customer sees this time."
+	options={PREP_MINUTES}
+	initial={suggestedPrep}
+	confirmLabel="Accept order"
+	busy={running === 'accept'}
+	onconfirm={acceptWith}
+	oncancel={() => (dialog = null)}
+/>
+
+<MinutesDialog
+	open={dialog === 'delay'}
+	title="Add time to {serial}"
+	body="We'll update the ready time and let the customer know."
+	options={DELAY_MINUTES}
+	initial={DELAY_MINUTES[0]}
+	confirmLabel="Add time"
+	busy={running === 'delay'}
+	onconfirm={delay}
+	oncancel={() => (dialog = null)}
+/>
+
+<RejectDialog
+	open={dialog === 'reject'}
+	{order}
+	busy={running === 'reject'}
+	onconfirm={reject}
+	oncancel={() => (dialog = null)}
+/>
