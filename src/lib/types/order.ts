@@ -101,6 +101,24 @@ export interface OrderDetail extends OrderSummary {
 	rejectNote?: string;
 	cancelledAt?: number;
 	cancelReason?: string;
+	/** Accepted by the backend on its own because auto-accept was on. */
+	autoAccepted?: boolean;
+}
+
+/** What the kitchen printer needs: no phone number, no last name. */
+export interface KitchenTicket {
+	restaurantName: string;
+	serialNo: number;
+	fulfillment: Fulfillment;
+	paidAt: number;
+	scheduledFor?: number;
+	customerFirstName: string;
+	note?: string;
+	/** Delivery orders only, e.g. "Götgatan 45, 11826 Stockholm". */
+	address?: string;
+	addressNote?: string;
+	lines: { quantity: number; name: string; variantName?: string; note?: string; options: { name: string; quantity: number }[] }[];
+	total: number;
 }
 
 export interface RejectInput {

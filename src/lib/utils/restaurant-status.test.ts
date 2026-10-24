@@ -17,6 +17,8 @@ const info = (hours: OpeningHours, extra: Partial<StatusInfo> = {}): StatusInfo 
 	isActive: true,
 	isAcceptingOrders: true,
 	prepTimeMinutes: 20,
+	autoAccept: false,
+	defaultPrepMinutes: 20,
 	hours,
 	...extra
 });

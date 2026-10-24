@@ -7,6 +7,7 @@
 	import { toasts } from '$lib/stores/toasts.svelte';
 	import { DELAY_MINUTES, PREP_MINUTES, type OrderDetail, type RejectInput } from '$lib/types';
 	import { formatSerial } from '$lib/utils/format';
+	import { nearestPrepChoice, prepChoices } from '$lib/utils/order-rules';
 	import MinutesDialog from './MinutesDialog.svelte';
 	import RejectDialog from './RejectDialog.svelte';
 
@@ -17,11 +18,10 @@
 	let dialog = $state<'accept' | 'reject' | 'delay' | null>(null);
 	let running = $state<string | null>(null);
 
-	/** The restaurant's usual prep time, snapped to the nearest choice the backend allows. */
-	const suggestedPrep = $derived.by(() => {
-		const usual = restaurant.info?.prepTimeMinutes ?? 20;
-		return PREP_MINUTES.reduce((best, m) => (Math.abs(m - usual) < Math.abs(best - usual) ? m : best));
-	});
+	/** The choices the backend accepts: the standard list, plus a slower kitchen's usual time. */
+	const choices = $derived(restaurant.info ? prepChoices(restaurant.info.prepTimeMinutes) : [...PREP_MINUTES]);
+	/** The usual prep time plus any busy minutes, rounded up to a choice. */
+	const suggestedPrep = $derived(nearestPrepChoice(restaurant.prepMinutes ?? 20, choices));
 
 	async function act(key: string, work: () => Promise<void>, done: string) {
 		running = key;
@@ -79,8 +79,10 @@
 <MinutesDialog
 	open={dialog === 'accept'}
 	title="Accept {serial}"
-	body="How long until it's ready? The customer sees this time."
-	options={PREP_MINUTES}
+	body={restaurant.busyMinutes
+		? `How long until it's ready? Busy mode adds ${restaurant.busyMinutes} min to the suggestion. The customer sees this time.`
+		: "How long until it's ready? The customer sees this time."}
+	options={choices}
 	initial={suggestedPrep}
 	confirmLabel="Accept order"
 	busy={running === 'accept'}

@@ -63,12 +63,14 @@ On Android the app draws edge to edge, behind the status bar, camera cutout and 
 | Page | Route | Highlights |
 | --- | --- | --- |
 | Sign in | `/login` | Email and password (the same partner accounts as the web portal). Customer accounts are turned away. Every other page redirects here until you sign in; the session is remembered on the device |
-| Home | `/` | Open / Paused / Closed card driven by the backend; switch off to pause new orders for 15, 30 or 60 min or until resumed. Live Active Orders table (new orders first) with accept deadlines and ready times. A toast announces each new order |
-| Order detail | `?order=<id>` on any page | Live side drawer (bottom sheet on phones): customer, address, notes, items with options, amounts with VAT. New: Accept (prep time 10-60 min) or Reject (reason, optionally marking items sold out). Preparing: Add time, Mark ready. Ready: Handed to rider / Collected by customer |
+| Home | `/` | Open / Paused / Closed card driven by the backend; switch off to pause new orders for 15, 30 or 60 min or until resumed. **Busy mode**: +10/20/30 min prep on new orders for 30 min, 1 h, 2 h or until turned off. **Auto-accept** switch (managers and owners). Live Active Orders table (new orders first) with accept deadlines and ready times. A toast announces each new order |
+| Notifications | Bell in the header | Live feed from the backend (new, waiting, auto-accepted, missed and cancelled orders, items back in stock) with unread count and "Mark all as read". Tapping one opens its order. A sound rings for new orders and, if wanted, repeats every 10 s while one waits. **Alerts and printing** sets tone, volume, repeat and which kinds to show (saved per login on the backend) and auto-print (saved on the device) |
+| Order detail | `?order=<id>` on any page | Live side drawer (bottom sheet on phones): customer, address, notes, items with options, amounts with VAT. New: Accept (prep time suggested from the usual time plus busy minutes) or Reject (reason, optionally marking items sold out). Preparing: Add time, Mark ready. Ready: Handed to rider / Collected by customer. **Print** a kitchen ticket (desktop builds) |
 | Previous Orders | `/orders` | Managers and owners. Search by name or order number, status filter, date range (up to 92 days), Load more |
 | Sales | `/sales` | Managers and owners. Today / 7 / 30 days: revenue, orders, average order, rejections, average prep time, each compared with the period before; orders per day; best sellers |
+| Performance | `/performance` | Managers and owners. Today / 7 / 30 days: acceptance rate, missed and auto-accepted orders, time to accept, rejections and cancellations by reason, refunds, late share and promised vs actual prep time, open / paused / busy time, items sold out now |
 
-Employees only see Home. Every data view has a loading skeleton, an empty state and an error state with a retry button.
+Employees see Home and notifications. Every data view has a loading skeleton, an empty state and an error state with a retry button.
 
 ## Project structure
 
@@ -89,11 +91,12 @@ src/
       index.ts             Wires the Convex implementations
       convex/              Convex-backed auth, orders, restaurant and stats services
       storage.ts           Safe localStorage wrapper
-    stores/                Svelte 5 rune stores: auth, live orders, restaurant, clock, toasts, Resource
-    utils/                 Pure logic + tests: restaurant-status, stockholm-time, format, performance, auth
+    stores/                Svelte 5 rune stores: auth, live orders, restaurant, notifications, printer, clock, toasts, Resource
+    utils/                 Pure logic + tests: restaurant-status, order-rules, notifications, print, alert-sound, stockholm-time, format, performance, auth
     components/
       ui/                  StatusBadge, StatCard, DataTable, Toggle, Modal, Drawer, Toaster, ...
       layout/              AppShell, Header, Sidebar, nav
+      notifications/       Bell + panel, alerts and printing settings
       orders/ home/ performance/
   routes/                  One folder per page
 src-tauri/                 Tauri shell (+ HTTP plugin for sign-in)
@@ -103,7 +106,7 @@ src-tauri/                 Tauri shell (+ HTTP plugin for sign-in)
 
 ### Connecting to Convex
 
-- **Live data.** Order board, order details, restaurant status and the signed-in profile are Convex queries watched over one websocket (`ConvexClient.onUpdate`). Changes from this device, other devices or the backend (e.g. auto-reject) appear without polling.
+- **Live data.** Order board, order details, restaurant status, notifications and the signed-in profile are Convex queries watched over one websocket (`ConvexClient.onUpdate`). Changes from this device, other devices or the backend (e.g. auto-reject) appear without polling.
 - **Actions** are Convex mutations (`orders.accept`, `orders.reject`, `restaurants.pauseOrders`, ...). The backend enforces every rule: allowed transitions, prep times, permissions. The UI shows its error messages.
 - **No generated API.** This app lives outside the backend monorepo, so `src/lib/convex/api.ts` mirrors the function names and shapes by hand. If a backend function changes, update it there. Moving the app into the monorepo would allow `@blinca/backend/convex/_generated/api` instead.
 
@@ -124,6 +127,18 @@ If the session ends (signed out elsewhere, expired), the app returns to sign-in 
 ### Open / Paused / Closed
 
 `restaurantState()` in `src/lib/utils/restaurant-status.ts` is the same rule as the backend's: switched off by Blinca → closed; paused → paused; otherwise the opening hours decide. Hours are read in Stockholm time with the backend's own helpers (`stockholm-time.ts`, ported from `convex/lib/stockholmTime.ts`), including overnight ranges and special days. A shared clock ticks every 10 s, so pauses and hours flip on time.
+
+### Busy mode, auto-accept and prep times
+
+`src/lib/utils/order-rules.ts` mirrors the backend's `convex/lib/orderRules.ts`: busy minutes count until `busyUntil`, and a new ASAP order's prep time is `max(prep, min(prep + busy, 60))`. It is worked out against the live clock because the backend's `defaultPrepMinutes` only refreshes when the status changes, not when a busy period runs out. The accept dialog offers exactly the backend's `prepChoices()`, so a kitchen whose usual time is over 60 min also gets that choice.
+
+### Sound
+
+Tones are synthesised with Web Audio (`src/lib/utils/alert-sound.ts`, the same tones as the web portal), so no audio file ships. Webviews only allow audio after a user gesture: the first tap or key press anywhere unlocks it, and until then the header shows "Tap to turn on sound". Sound plays while the app is open; it can't ring from the background or with the screen off (that needs native push notifications).
+
+### Kitchen tickets
+
+`orders.ticket` gives what the kitchen needs and nothing more (no phone, no last name). The ticket is rendered into a print-only area (80 mm receipt layout) and printed with `window.print()`; the rest of the app is hidden on paper. Tickets print one at a time. Auto-print prints each order once when it becomes accepted, by staff or by auto-accept, on every device that has it switched on. Android and iOS webviews can't print, so the print button and setting are hidden there.
 
 ### Time and money
 
@@ -150,7 +165,8 @@ To keep the UI readable, the `@font-face` in `src/app.css` uses `unicode-range` 
 
 ## Next steps
 
-- Sound and push notifications for new orders on counter tablets (today: a toast).
+- Native push notifications, so new orders ring with the app in the background or the screen off.
+- Printing from Android tablets (needs a native printer plugin or a network receipt printer).
 - Keep the session token in the OS keychain instead of `localStorage`.
 - An employee-level "today's numbers" query on the backend, so counter staff can see quick stats too.
 - Courier status after hand-over, once the backend's courier milestone (M4) lands.

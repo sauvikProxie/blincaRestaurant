@@ -18,6 +18,14 @@ export function createConvexStatsService(): StatsService {
 				topProducts: s.topProducts.map((p) => ({ name: p.name, quantity: p.quantity, revenue: p.revenueCents })),
 				coveredFrom: s.truncated ? s.coveredFrom : null
 			};
+		},
+
+		async performance(from, to) {
+			const { refundedCents, truncated, coveredFrom, ...rest } = await convex().query(api.orderReports.performance, {
+				fromDate: from,
+				toDate: to
+			});
+			return { ...rest, refunded: refundedCents, coveredFrom: truncated ? coveredFrom : null };
 		}
 	};
 }

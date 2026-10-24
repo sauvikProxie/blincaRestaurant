@@ -1,5 +1,6 @@
 import { restaurantService, type Unsubscribe } from '$lib/services';
-import type { PartnerProfile, PauseMinutes, StatusInfo } from '$lib/types';
+import type { BusyDuration, BusyMinutes, PartnerProfile, PauseMinutes, StatusInfo } from '$lib/types';
+import { activeBusyMinutes, defaultPrepMinutes } from '$lib/utils/order-rules';
 import { restaurantState } from '$lib/utils/restaurant-status';
 import { clock } from './clock.svelte';
 
@@ -13,8 +14,14 @@ class RestaurantStore {
 
 	/** Re-derived as the clock ticks, so pauses and opening hours flip on time. */
 	state = $derived(this.info ? restaurantState(this.info, clock.now.getTime()) : null);
-	/** Sales and order history are for managers and owners. */
+	/** Extra prep minutes from busy mode right now; 0 when it is off or has run out. */
+	busyMinutes = $derived(this.info ? activeBusyMinutes(this.info, clock.now.getTime()) : 0);
+	/** What a new ASAP order gets: the usual prep time plus busy minutes. */
+	prepMinutes = $derived(this.info ? defaultPrepMinutes(this.info, clock.now.getTime()) : null);
+	/** Sales, performance and order history are for managers and owners. */
 	canSeeReports = $derived(!!this.profile && this.profile.role !== 'employee');
+	/** Switching auto-accept needs a manager or owner (store:ordering). */
+	canSetAutoAccept = $derived(!!this.profile && this.profile.role !== 'employee');
 
 	#unsubscribe: Unsubscribe[] = [];
 
@@ -55,6 +62,18 @@ class RestaurantStore {
 
 	resume() {
 		return this.#run(() => restaurantService.resume());
+	}
+
+	setBusy(extraMinutes: BusyMinutes, durationMinutes: BusyDuration | null) {
+		return this.#run(() => restaurantService.setBusy(extraMinutes, durationMinutes));
+	}
+
+	clearBusy() {
+		return this.#run(() => restaurantService.clearBusy());
+	}
+
+	setAutoAccept(enabled: boolean) {
+		return this.#run(() => restaurantService.setAutoAccept(enabled));
 	}
 
 	async #run(work: () => Promise<void>) {

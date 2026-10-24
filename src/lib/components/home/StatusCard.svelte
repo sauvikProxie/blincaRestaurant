@@ -1,5 +1,6 @@
 <script lang="ts">
 	import CalendarClock from '@lucide/svelte/icons/calendar-clock';
+	import Flame from '@lucide/svelte/icons/flame';
 	import Play from '@lucide/svelte/icons/play';
 	import Button from '$lib/components/ui/Button.svelte';
 	import Chip from '$lib/components/ui/Chip.svelte';
@@ -13,8 +14,15 @@
 	import { liveOrders } from '$lib/stores/live-orders.svelte';
 	import { restaurant } from '$lib/stores/restaurant.svelte';
 	import { toasts } from '$lib/stores/toasts.svelte';
-	import { PAUSE_MINUTES, type PauseMinutes } from '$lib/types';
-	import { pluralize } from '$lib/utils/format';
+	import {
+		BUSY_DURATIONS,
+		BUSY_MINUTES,
+		PAUSE_MINUTES,
+		type BusyDuration,
+		type BusyMinutes,
+		type PauseMinutes
+	} from '$lib/types';
+	import { formatTime, pluralize, relativeDay } from '$lib/utils/format';
 	import { describeStatus } from '$lib/utils/restaurant-status';
 
 	const openState = $derived(restaurant.state);
@@ -26,6 +34,54 @@
 
 	let pauseOpen = $state(false);
 	let pauseFor = $state<PauseMinutes | null>(PAUSE_MINUTES[0]);
+
+	let busyOpen = $state(false);
+	let busyExtra = $state<BusyMinutes>(BUSY_MINUTES[0]);
+	let busyFor = $state<BusyDuration | null>(BUSY_DURATIONS[1]);
+
+	const busyMinutes = $derived(restaurant.busyMinutes);
+	const busyDetail = $derived.by(() => {
+		if (!busyMinutes || !info) return '';
+		const until = info.busyUntil;
+		const now = clock.now.getTime();
+		const day = until ? relativeDay(until, now) : 'today';
+		const end = until ? `until ${formatTime(until)}${day === 'today' ? '' : ` ${day}`}` : 'until you turn it off';
+		return `+${busyMinutes} min on new orders, ${end}. New orders get ${restaurant.prepMinutes} min.`;
+	});
+
+	function openBusy() {
+		busyExtra = BUSY_MINUTES[0];
+		busyFor = BUSY_DURATIONS[1];
+		busyOpen = true;
+	}
+
+	async function startBusy() {
+		try {
+			await restaurant.setBusy(busyExtra, busyFor);
+			busyOpen = false;
+			toasts.success(`Busy mode on: new orders get ${busyExtra} extra minutes.`);
+		} catch (error) {
+			toasts.error(errorMessage(error));
+		}
+	}
+
+	async function endBusy() {
+		try {
+			await restaurant.clearBusy();
+			toasts.success('Busy mode is off.');
+		} catch (error) {
+			toasts.error(errorMessage(error));
+		}
+	}
+
+	async function toggleAutoAccept(enabled: boolean) {
+		try {
+			await restaurant.setAutoAccept(enabled);
+			toasts.success(enabled ? 'New orders will be accepted automatically.' : 'You accept new orders yourself again.');
+		} catch (error) {
+			toasts.error(errorMessage(error));
+		}
+	}
 
 	function requestToggle() {
 		if (isOpen) {
@@ -92,6 +148,52 @@
 			{/if}
 		</div>
 
+		{#if info.isActive}
+			<div class="controls">
+				<div class="control">
+					<div class="control-text">
+						<p class="control-title">
+							<Flame size={18} strokeWidth={2} aria-hidden="true" />
+							{busyMinutes ? 'Busy mode is on' : 'Kitchen busy?'}
+						</p>
+						<p class="control-detail" aria-live="polite">
+							{busyMinutes
+								? busyDetail
+								: `Give new orders more prep time. Right now they get ${restaurant.prepMinutes ?? info.prepTimeMinutes} min.`}
+						</p>
+					</div>
+					{#if busyMinutes}
+						<Button size="sm" variant={isOpen ? 'inverse' : 'secondary'} onclick={endBusy} loading={restaurant.busy}>
+							End busy mode
+						</Button>
+					{:else}
+						<Button size="sm" variant={isOpen ? 'inverse' : 'secondary'} onclick={openBusy} disabled={restaurant.busy}>
+							Busy mode
+						</Button>
+					{/if}
+				</div>
+
+				{#if restaurant.canSetAutoAccept}
+					<div class="control">
+						<div class="control-text">
+							<p class="control-title">Accept orders automatically</p>
+							<p class="control-detail">Paid orders are accepted straight away with the default prep time.</p>
+						</div>
+						<Toggle
+							checked={info.autoAccept}
+							label="Accept orders automatically"
+							hideLabel
+							inverse={isOpen}
+							disabled={restaurant.busy}
+							onchange={toggleAutoAccept}
+						/>
+					</div>
+				{:else if info.autoAccept}
+					<p class="control-detail">Orders are accepted automatically. A manager can change this.</p>
+				{/if}
+			</div>
+		{/if}
+
 		<div class="footer">
 			{#if openState === 'paused'}
 				<p class="note">New orders are paused. Orders already in the kitchen still need finishing.</p>
@@ -122,6 +224,31 @@
 	{#snippet footer()}
 		<Button variant="secondary" onclick={() => (pauseOpen = false)} disabled={restaurant.busy}>Stay open</Button>
 		<Button onclick={pause} loading={restaurant.busy}>Pause orders</Button>
+	{/snippet}
+</Modal>
+
+<Modal open={busyOpen} title="Turn on busy mode?" size="sm" onclose={() => (busyOpen = false)}>
+	<p class="muted">
+		New orders get extra prep time, so customers see a later time. You stay open. Orders already accepted don't change.
+	</p>
+	<p class="choice-label" id="busy-extra-label">Extra time per order</p>
+	<div class="choices" role="group" aria-labelledby="busy-extra-label">
+		{#each BUSY_MINUTES as minutes (minutes)}
+			<Chip selected={busyExtra === minutes} onclick={() => (busyExtra = minutes)}>+{minutes} min</Chip>
+		{/each}
+	</div>
+	<p class="choice-label" id="busy-for-label">For how long</p>
+	<div class="choices" role="group" aria-labelledby="busy-for-label">
+		{#each BUSY_DURATIONS as minutes (minutes)}
+			<Chip selected={busyFor === minutes} onclick={() => (busyFor = minutes)}>
+				{minutes < 60 ? `${minutes} min` : pluralize(minutes / 60, 'hour')}
+			</Chip>
+		{/each}
+		<Chip selected={busyFor === null} onclick={() => (busyFor = null)}>Until I turn it off</Chip>
+	</div>
+	{#snippet footer()}
+		<Button variant="secondary" onclick={() => (busyOpen = false)} disabled={restaurant.busy}>Cancel</Button>
+		<Button onclick={startBusy} loading={restaurant.busy}>Turn on busy mode</Button>
 	{/snippet}
 </Modal>
 
@@ -221,13 +348,64 @@
 		margin-top: var(--space-3);
 	}
 
+	.choice-label + .choices {
+		margin-top: var(--space-1);
+	}
+
+	.choice-label {
+		margin-top: var(--space-3);
+		color: var(--color-text-muted);
+		font-size: var(--text-caption);
+		letter-spacing: var(--ls-caption);
+	}
+
+	.controls {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+		padding: var(--space-2) var(--space-4);
+		border-top: 1px solid var(--color-border);
+	}
+
+	.open .controls {
+		border-top-color: color-mix(in srgb, var(--color-white) 25%, transparent);
+	}
+
+	.control {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-2);
+	}
+
+	.control-text {
+		min-width: 0;
+	}
+
+	.control-title {
+		display: flex;
+		align-items: center;
+		gap: var(--space-1);
+	}
+
+	.control-detail {
+		font-size: var(--text-caption);
+		line-height: var(--lh-caption);
+		letter-spacing: var(--ls-caption);
+	}
+
+	.closed .control-detail {
+		color: var(--color-text-muted);
+	}
+
 	@media (max-width: 767px) {
 		.main {
 			padding: var(--space-3);
 			gap: var(--space-2);
 		}
 
-		.footer {
+		.footer,
+		.controls {
 			padding: var(--space-2) var(--space-3);
 		}
 

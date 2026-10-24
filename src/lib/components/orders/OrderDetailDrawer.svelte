@@ -3,11 +3,13 @@
 	import MapPin from '@lucide/svelte/icons/map-pin';
 	import MessageSquareText from '@lucide/svelte/icons/message-square-text';
 	import Phone from '@lucide/svelte/icons/phone';
+	import Printer from '@lucide/svelte/icons/printer';
 	import SearchX from '@lucide/svelte/icons/search-x';
 	import User from '@lucide/svelte/icons/user';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import Badge from '$lib/components/ui/Badge.svelte';
+	import Button from '$lib/components/ui/Button.svelte';
 	import Drawer from '$lib/components/ui/Drawer.svelte';
 	import EmptyState from '$lib/components/ui/EmptyState.svelte';
 	import ErrorState from '$lib/components/ui/ErrorState.svelte';
@@ -15,6 +17,7 @@
 	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
 	import { ordersService } from '$lib/services';
 	import { clock } from '$lib/stores/clock.svelte';
+	import { printer } from '$lib/stores/printer.svelte';
 	import { ACTIVE_STATUSES, type OrderDetail } from '$lib/types';
 	import { formatDateTime, formatSerial, formatTime, formatTimeAgo, pluralize } from '$lib/utils/format';
 	import AmountBreakdown from './AmountBreakdown.svelte';
@@ -71,6 +74,17 @@
 </script>
 
 {#snippet footer()}
+	{#if order && printer.supported}
+		<span class="print">
+			<Button
+				variant="ghost"
+				icon={Printer}
+				loading={printer.queue.includes(order.id)}
+				aria-label="Print kitchen ticket for {formatSerial(order.serialNo)}"
+				onclick={() => order && printer.print(order.id)}>Print</Button
+			>
+		</span>
+	{/if}
 	{#if order && isActive}
 		<OrderActions {order} />
 	{:else if order}
@@ -105,6 +119,11 @@
 						<span class:urgent={isUrgent(order, clock.now.getTime())}>{timing}</span>
 					{/if}
 				</p>
+				{#if order.autoAccepted}
+					<p class="meta-row muted">
+						Accepted automatically{order.prepMinutes ? ` with ${order.prepMinutes} min prep time` : ''}
+					</p>
+				{/if}
 				{#if order.pickedUpAt}
 					<p class="meta-row muted">Left the kitchen at {formatTime(order.pickedUpAt)}</p>
 				{/if}
@@ -238,6 +257,11 @@
 
 	.customer .section-title {
 		margin-bottom: var(--space-half);
+	}
+
+	/* Print sits on the left, away from the order actions */
+	.print {
+		margin-right: auto;
 	}
 
 	.hint {

@@ -9,7 +9,8 @@ export type BackendErrorCode =
 	| 'VALIDATION'
 	| 'INVALID_STATE'
 	| 'RESTAURANT_CLOSED'
-	| 'ITEM_UNAVAILABLE';
+	| 'ITEM_UNAVAILABLE'
+	| 'RATE_LIMITED';
 
 export function errorCode(error: unknown): BackendErrorCode | null {
 	if (!(error instanceof ConvexError)) return null;
@@ -30,6 +31,8 @@ export function errorMessage(error: unknown): string {
 			return "We couldn't find that order.";
 		case 'INVALID_STATE':
 			return 'This order has already moved on. The list now shows its latest status.';
+		case 'RATE_LIMITED':
+			return 'Too many tries in a row. Wait a moment and try again.';
 		case 'VALIDATION': {
 			const data = (error as ConvexError<{ message?: string }>).data;
 			return data?.message ?? 'Please check your input and try again.';

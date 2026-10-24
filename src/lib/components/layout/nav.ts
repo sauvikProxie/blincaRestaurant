@@ -1,5 +1,6 @@
 import type { LucideIcon } from '@lucide/svelte';
 import ChartColumn from '@lucide/svelte/icons/chart-column';
+import Gauge from '@lucide/svelte/icons/gauge';
 import House from '@lucide/svelte/icons/house';
 import Receipt from '@lucide/svelte/icons/receipt';
 
@@ -15,7 +16,8 @@ export interface NavItem {
 export const NAV_ITEMS: NavItem[] = [
 	{ href: '/', label: 'Home', icon: House },
 	{ href: '/orders', label: 'Previous Orders', icon: Receipt, managersOnly: true },
-	{ href: '/sales', label: 'Sales', icon: ChartColumn, managersOnly: true }
+	{ href: '/sales', label: 'Sales', icon: ChartColumn, managersOnly: true },
+	{ href: '/performance', label: 'Performance', icon: Gauge, managersOnly: true }
 ];
 
 export function isActive(href: string, pathname: string): boolean {

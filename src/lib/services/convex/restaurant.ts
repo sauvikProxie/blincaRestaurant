@@ -23,6 +23,18 @@ export function createConvexRestaurantService(): RestaurantService {
 
 		async resume() {
 			await convex().mutation(api.restaurants.resumeOrders, {});
+		},
+
+		async setBusy(extraMinutes, durationMinutes) {
+			await convex().mutation(api.restaurants.setBusy, { extraMinutes, durationMinutes });
+		},
+
+		async clearBusy() {
+			await convex().mutation(api.restaurants.clearBusy, {});
+		},
+
+		async setAutoAccept(enabled) {
+			await convex().mutation(api.restaurants.setAutoAccept, { enabled });
 		}
 	};
 }

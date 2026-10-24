@@ -1,14 +1,21 @@
 import type {
+	BusyDuration,
+	BusyMinutes,
 	Credentials,
 	HistoryPage,
 	HistoryQuery,
+	KitchenTicket,
+	NotificationFeed,
+	NotificationKind,
 	OrderDetail,
 	OrderSummary,
 	PartnerProfile,
 	PauseMinutes,
+	PerformanceReport,
 	RejectInput,
 	SalesSummary,
 	Session,
+	SoundSettings,
 	StatusInfo
 } from '$lib/types';
 
@@ -46,6 +53,8 @@ export interface OrdersService {
 	markReady(id: string): Promise<void>;
 	/** Given to the rider, or collected by the customer. */
 	handOver(id: string): Promise<void>;
+	/** The printable kitchen ticket for one order. */
+	ticket(id: string): Promise<KitchenTicket>;
 	/** Finished orders, newest first. Pass the previous page's cursor to continue. */
 	history(query: HistoryQuery, cursor: string | null, pageSize: number): Promise<HistoryPage>;
 	/** Dev deployments only: places a paid test order for this restaurant. */
@@ -58,9 +67,24 @@ export interface RestaurantService {
 	/** Stops new orders for a while, or until resumed when `minutes` is null. */
 	pause(minutes: PauseMinutes | null): Promise<void>;
 	resume(): Promise<void>;
+	/** Adds prep minutes to new orders for a while, or until turned off when `durationMinutes` is null. */
+	setBusy(extraMinutes: BusyMinutes, durationMinutes: BusyDuration | null): Promise<void>;
+	clearBusy(): Promise<void>;
+	/** Managers and owners only. */
+	setAutoAccept(enabled: boolean): Promise<void>;
+}
+
+export interface NotificationsService {
+	/** Newest first, with the unread count and this login's settings. */
+	watchFeed: Watch<NotificationFeed>;
+	markRead(id: string): Promise<void>;
+	markAllRead(): Promise<void>;
+	updateSettings(settings: { sound?: SoundSettings; mutedKinds?: NotificationKind[] }): Promise<void>;
 }
 
 export interface StatsService {
 	/** Inclusive business dates (yyyy-MM-dd). Managers and owners only. */
 	salesSummary(from: string, to: string): Promise<SalesSummary>;
+	/** Inclusive business dates (yyyy-MM-dd). Managers and owners only. */
+	performance(from: string, to: string): Promise<PerformanceReport>;
 }

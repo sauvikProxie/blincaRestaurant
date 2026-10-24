@@ -5,11 +5,14 @@
 	import { page } from '$app/state';
 	import appIcon from '$brand/02-App-Icon/blinca-app-icon-rounded-1024.png';
 	import AppShell from '$lib/components/layout/AppShell.svelte';
+	import NotificationSettingsDialog from '$lib/components/notifications/NotificationSettingsDialog.svelte';
 	import OrderDetailDrawer from '$lib/components/orders/OrderDetailDrawer.svelte';
+	import PrintTicket from '$lib/components/orders/PrintTicket.svelte';
 	import Toaster from '$lib/components/ui/Toaster.svelte';
 	import { auth } from '$lib/stores/auth.svelte';
 	import { clock } from '$lib/stores/clock.svelte';
 	import { liveOrders } from '$lib/stores/live-orders.svelte';
+	import { notifications } from '$lib/stores/notifications.svelte';
 	import { restaurant } from '$lib/stores/restaurant.svelte';
 
 	let { children }: { children: Snippet } = $props();
@@ -29,8 +32,10 @@
 			auth.connect();
 			restaurant.connect();
 			liveOrders.connect();
+			notifications.connect();
 		});
 		return () => {
+			notifications.disconnect();
 			liveOrders.disconnect();
 			restaurant.disconnect();
 		};
@@ -48,13 +53,30 @@
 	<link rel="icon" type="image/png" href={appIcon} />
 </svelte:head>
 
-{#if bare}
-	{@render children()}
-{:else}
-	<AppShell>
+<!-- Everything on screen; hidden on paper so only the kitchen ticket prints. -->
+<div class="screen">
+	{#if bare}
 		{@render children()}
-	</AppShell>
+	{:else}
+		<AppShell>
+			{@render children()}
+		</AppShell>
 
-	<OrderDetailDrawer />
-{/if}
-<Toaster />
+		<OrderDetailDrawer />
+		<NotificationSettingsDialog />
+	{/if}
+	<Toaster />
+</div>
+<PrintTicket />
+
+<style>
+	.screen {
+		display: contents;
+	}
+
+	@media print {
+		.screen {
+			display: none;
+		}
+	}
+</style>

@@ -1,6 +1,8 @@
 import { ordersService, type Unsubscribe } from '$lib/services';
 import { ACTIVE_STATUSES, type OrderSummary } from '$lib/types';
 import { formatSerial } from '$lib/utils/format';
+import { newlyAccepted } from '$lib/utils/print';
+import { printer } from './printer.svelte';
 import { toasts } from './toasts.svelte';
 
 /** New orders first, then those cooking, then those waiting for pickup; the backend's urgency order within each. */
@@ -18,6 +20,8 @@ class LiveOrders {
 	#unsubscribe: Unsubscribe | null = null;
 	/** Ids already on the board, so only genuinely new orders raise an alert. */
 	#seen: Set<string> | null = null;
+	/** Each order's status at the previous update, so auto-print fires once per accepted order. */
+	#statuses: Map<string, string> | null = null;
 
 	connect() {
 		if (this.#unsubscribe) return;
@@ -41,6 +45,7 @@ class LiveOrders {
 		this.#unsubscribe?.();
 		this.#unsubscribe = null;
 		this.#seen = null;
+		this.#statuses = null;
 		this.orders = [];
 		this.loading = true;
 	}
@@ -72,6 +77,9 @@ class LiveOrders {
 			seen.add(order.id);
 		}
 		this.#seen = seen;
+
+		if (printer.autoPrint) for (const id of newlyAccepted(this.#statuses, orders)) printer.print(id);
+		this.#statuses = new Map(orders.map((order) => [order.id, order.status]));
 	}
 }
 

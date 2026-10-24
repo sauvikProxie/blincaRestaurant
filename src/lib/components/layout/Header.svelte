@@ -2,6 +2,7 @@
 	import Menu from '@lucide/svelte/icons/menu';
 	import lockup from '$brand/01-Logo/SVG/blinca-lockup-cranberry.svg';
 	import mark from '$brand/01-Logo/SVG/blinca-mark-cranberry.svg';
+	import NotificationBell from '$lib/components/notifications/NotificationBell.svelte';
 	import Badge from '$lib/components/ui/Badge.svelte';
 	import IconButton from '$lib/components/ui/IconButton.svelte';
 	import Skeleton from '$lib/components/ui/Skeleton.svelte';
@@ -18,6 +19,8 @@
 	const openState = $derived(restaurant.state);
 	const name = $derived(restaurant.profile?.restaurantName ?? '');
 	const pausedUntil = $derived(openState === 'paused' && restaurant.info?.isAcceptingOrders ? restaurant.info.pausedUntil : undefined);
+	/** Busy only matters while orders come in. */
+	const busy = $derived(openState === 'open' ? restaurant.busyMinutes : 0);
 
 	const LABELS = { open: 'Open', paused: 'Paused', closed: 'Closed' } as const;
 </script>
@@ -38,12 +41,16 @@
 
 	<a href="/" class="status" aria-live="polite">
 		{#if openState}
-			<Badge tone={openState === 'open' ? 'tint' : 'muted'} dot size="md">{LABELS[openState]}</Badge>
+			<Badge tone={openState === 'open' ? 'tint' : 'muted'} dot size="md">
+				{LABELS[openState]}{busy ? ` · Busy +${busy} min` : ''}
+			</Badge>
 			{#if pausedUntil}<span class="manual">until {formatTime(pausedUntil)}</span>{/if}
 		{:else if restaurant.loading}
 			<Skeleton width="88px" height="36px" radius="pill" />
 		{/if}
 	</a>
+
+	<NotificationBell />
 </header>
 
 <style>
