@@ -1,4 +1,4 @@
-BLINCA RIDER APP - TECH STACK 
+BLINCA RIDER APP - TECH STACK
 =============================
 
 App shell      Tauri 2.12 (Rust, edition 2024). Wraps the web UI as a native
